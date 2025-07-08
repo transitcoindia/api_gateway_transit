@@ -39,6 +39,10 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('combined'));
 
+
+app.get('/', (req,res)=>{
+    res.status(200).json({message: "hello"});
+})
 // Health check endpoint
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -76,7 +80,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // Start the server
 const PORT = process.env.PORT || 3005;
 httpServer.listen(PORT, () => {
-    console.log(`API Gateway server running on port ${PORT}`);
+    console.log(`API Gateway server running on port http://localhost:${PORT}`);
     console.log('Environment:', process.env.NODE_ENV);
     console.log('WebSocket server is ready for connections');
     console.log('Available routes:');
