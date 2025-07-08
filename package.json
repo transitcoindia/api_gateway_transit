@@ -4,9 +4,14 @@
   "description": "API Gateway for Transit Assured",
   "main": "dist/index.js",
   "scripts": {
-    "start": "node dist/index.js",
+    "start": "node dist/index.ts",
     "dev": "nodemon src/index.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
+    "dev:watch": "nodemon src/index.ts",
+    "watch": "ts-node --watch src/index.ts",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
     "test": "jest",
     "test:watch": "jest --watchAll"
   },
