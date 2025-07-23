@@ -1,5 +1,6 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { Server as HTTPServer } from 'http';
+import axios from 'axios';
 
 interface AuthenticatedSocket {
   id: string;
@@ -11,17 +12,20 @@ interface AuthenticatedSocket {
   on: (event: string, callback: (data: any, callback?: (response: any) => void) => void) => void;
 }
 
+const rideDetailsMap = new Map();
+
 export class WebSocketService {
   private io: SocketIOServer;
   private driverSockets: Map<string, AuthenticatedSocket> = new Map();
   private riderSockets: Map<string, AuthenticatedSocket> = new Map();
+  private rideToRiderMap: Map<string, string> = new Map();
 
   constructor(server: HTTPServer) {
     this.io = new SocketIOServer(server, {
       cors: {
         origin: [
-          'http://localhost:3000', // Driver backend
-          'http://localhost:8000', // Rider backend
+          process.env.driver_backend || 'http://localhost:3000', // Driver backend
+          process.env.rider_backend || 'http://localhost:8000', // Rider backend
           process.env.FRONTEND_APP_URL || 'http://localhost:3000'
         ],
         methods: ['GET', 'POST'],
@@ -45,15 +49,18 @@ export class WebSocketService {
       });
 
       // Handle authentication
-      socket.on('authenticate', (data: { driverId: string } | { riderId: string }) => {
+      socket.on('authenticate', (data: { driverId: string, accessToken?: string } | { riderId: string, accessToken?: string }) => {
         if ('driverId' in data) {
           connectionType = 'driver';
           userId = data.driverId;
           socket.userId = data.driverId;
           socket.userType = 'driver';
+          socket.join('drivers');
           socket.join(`driver:${data.driverId}`);
           this.driverSockets.set(data.driverId, socket);
-          
+          if ('accessToken' in data && data.accessToken) {
+            (socket as any).accessToken = data.accessToken;
+          }
           console.log('Driver Connection:', {
             socketId: socket.id,
             driverId: data.driverId,
@@ -69,7 +76,9 @@ export class WebSocketService {
           socket.userType = 'rider';
           socket.join(`rider:${data.riderId}`);
           this.riderSockets.set(data.riderId, socket);
-          
+          if ('accessToken' in data && data.accessToken) {
+            (socket as any).accessToken = data.accessToken;
+          }
           console.log('Rider Connection:', {
             socketId: socket.id,
             riderId: data.riderId,
@@ -99,58 +108,170 @@ export class WebSocketService {
       });
 
       // Handle ride requests
-      socket.on('requestRide', (data: { 
-        riderId: string; 
-        pickup: { latitude: number; longitude: number }; 
-        dropoff: { latitude: number; longitude: number }; 
-        timestamp: string 
-      }, callback?: (response: { rideId: string }) => void) => {
+      socket.on('requestRide', (data: any, callback?: (response: { rideId: string, rideCode: string }) => void) => {
         console.log('New Ride Request:', {
           socketId: socket.id,
-          riderId: data.riderId,
-          connectionType: 'rider',
-          pickup: data.pickup,
-          dropoff: data.dropoff,
-          timestamp: data.timestamp
+          ...data
         });
+        // Store accessToken from payload on the socket for later use
+        if (data.accessToken) {
+          (socket as any).accessToken = data.accessToken;
+        }
         // Generate a unique ride ID
         const rideId = `ride_${Date.now()}`;
+        // Generate a random 4-digit rideCode (OTP)
+        const rideCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+        // Map rideId to riderId
+        if (typeof socket.userId === 'string') {
+          this.rideToRiderMap.set(rideId, socket.userId);
+        }
+
+        // Store the full ride details in memory for later use
+        rideDetailsMap.set(rideId, {
+          ...data,
+          rideId,
+          rideCode,
+          riderId: socket.userId,
+          accessToken: data.accessToken // <-- store it here
+        });
+
+        console.log('Sockets in drivers room:', Array.from(this.io.sockets.adapter.rooms.get('drivers') || []));
         
-        // Broadcast to all drivers
+        // Broadcast to all drivers with ALL ride details
         this.io.to('drivers').emit('newRideRequest', {
           rideId,
-          riderId: data.riderId,
-          pickup: data.pickup,
-          dropoff: data.dropoff,
-          timestamp: data.timestamp
+          rideCode,
+          ...data
         });
 
         // Send response to rider if callback provided
         if (callback) {
-          callback({ rideId });
+          callback({ rideId, rideCode });
         }
       });
 
+      
       // Handle ride acceptance
-      socket.on('acceptRide', (data: { 
-        driverId: string; 
-        rideId: string; 
-        timestamp: string 
-      }) => {
-        console.log('Ride Accepted:', {
-          socketId: socket.id,
-          driverId: data.driverId,
-          connectionType: 'driver',
-          rideId: data.rideId,
-          timestamp: data.timestamp
-        });
-        // Broadcast to the specific rider
-        this.io.emit('rideStatusUpdate', {
-          rideId: data.rideId,
-          driverId: data.driverId,
-          status: 'ACCEPTED',
-          timestamp: data.timestamp
-        });
+      socket.on('acceptRide', async (data) => {
+        const { rideId, driverId, timestamp, ...rideDetails } = data;
+        // 1. Mark the ride as accepted in your DB or in-memory store
+        // 2. Notify the correct rider (find by rideId)
+        const riderId = this.rideToRiderMap.get(rideId);
+        if (typeof riderId === 'string') {
+          const riderSocket = this.riderSockets.get(riderId);
+          if (riderSocket) {
+            riderSocket.emit('rideAccepted', { rideId, driverId, timestamp });
+          }
+        }
+
+        // Retrieve the full ride details from memory
+        const storedRideDetails = rideDetailsMap.get(rideId);
+        const accessToken = storedRideDetails?.accessToken;
+        // Store the driver's access token if present
+        if (data.accessToken) {
+          storedRideDetails.driverAccessToken = data.accessToken;
+          rideDetailsMap.set(rideId, storedRideDetails);
+        }
+        const driverAccessToken = storedRideDetails?.driverAccessToken;
+        console.log("accessToken (rider): ", accessToken);
+        console.log("driverAccessToken: ", driverAccessToken);
+        if (!storedRideDetails) {
+          console.error('No ride details found for rideId:', rideId);
+          socket.emit('acceptRideAck', { rideId, status: 'error', message: 'Ride details not found' });
+          return;
+        }
+
+        const ridePayload = {
+          rideId,
+          rideCode: storedRideDetails.rideCode || undefined,
+          status: 'accepted',
+          pickupLatitude: storedRideDetails.pickupLatitude ?? storedRideDetails.pickup?.latitude,
+          pickupLongitude: storedRideDetails.pickupLongitude ?? storedRideDetails.pickup?.longitude,
+          pickupAddress: storedRideDetails.pickupAddress,
+          dropLatitude: storedRideDetails.dropLatitude ?? storedRideDetails.dropoff?.latitude,
+          dropLongitude: storedRideDetails.dropLongitude ?? storedRideDetails.dropoff?.longitude,
+          dropAddress: storedRideDetails.dropAddress,
+          startTime: new Date().toISOString(),
+          endTime: null,
+          estimatedFare: storedRideDetails.estimatedFare,
+          actualFare: null,
+          estimatedDistance: storedRideDetails.estimatedDistance,
+          actualDistance: null,
+          estimatedDuration: storedRideDetails.estimatedDuration,
+          actualDuration: null,
+          baseFare: storedRideDetails.baseFare,
+          surgeMultiplier: storedRideDetails.surgeMultiplier || 1.0,
+          waitingTime: null,
+          cancellationFee: null,
+          cancellationReason: null,
+          cancelledBy: null,
+          paymentStatus: 'pending',
+          paymentMethod: null,
+          transactionId: null,
+          driverId,
+          riderId: storedRideDetails.riderId, // <-- ensure this is set!
+          vehicleId: storedRideDetails.vehicleId || null,
+          serviceZoneId: storedRideDetails.serviceZoneId || null,
+          route: storedRideDetails.route || null,
+          waypoints: storedRideDetails.waypoints || null,
+          driverLocationUpdates: [],
+          timestamp
+        };
+
+        //after accepting the ride store into the rider databse
+        let riderStoreSuccess = false;
+        try {
+          console.log('Forwarding access token to rider backend:', accessToken);
+          await axios.post(
+            `${process.env.rider_backend}/api/rider/rides_accepted`,
+            ridePayload,
+            {
+              headers: {
+                Authorization: `Bearer ${accessToken}`
+              }
+            }
+          );
+          riderStoreSuccess = true;
+          console.log('Ride stored successfully in rider backend.');
+        } catch (err) {
+          console.error('Failed to notify rider backend:', (err as any).response?.data || (err as any).message);
+        }
+
+        //after accepting the ride store into the driver databse
+        let driverStoreSuccess = false;
+        try {
+          const driverBackendUrl = process.env.driver_backend;
+          // console.log('driver_backend URL:', driverBackendUrl);
+          if (!driverBackendUrl || !/^https?:\/\//.test(driverBackendUrl)) {
+            throw new Error('Invalid driver_backend URL');
+          }
+          await axios.post(
+            `${driverBackendUrl}/api/driver/rides_accepted`,
+            ridePayload,
+            {
+              headers: {
+                Authorization: `Bearer ${driverAccessToken}`
+              }
+            }
+          );
+          driverStoreSuccess = true;
+          console.log('Ride stored successfully in driver backend.');
+        } catch (err) {
+          console.error('Failed to notify driver backend:', (err as any).response?.data || (err as any).message);
+        }
+
+        // 3. Optionally, notify other drivers that the ride is no longer available
+        // 4. Optionally, send an ack to the driver
+        let ackMessage = 'accepted';
+        if (riderStoreSuccess && driverStoreSuccess) {
+          ackMessage = 'Ride stored successfully in both rider and driver backend.';
+        } else if (riderStoreSuccess) {
+          ackMessage = 'Ride stored successfully in rider backend.';
+        } else if (driverStoreSuccess) {
+          ackMessage = 'Ride stored successfully in driver backend.';
+        }
+        socket.emit('acceptRideAck', { rideId, status: 'accepted', message: ackMessage });
       });
 
       // Handle ride cancellation

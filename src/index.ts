@@ -26,8 +26,8 @@ const wsService = new WebSocketService(httpServer);
 app.use(helmet());
 app.use(cors({
     origin: [
-        'http://localhost:3000', // Driver backend
-        'http://localhost:8000', // Rider backend
+        process.env.driver_backend || 'http://localhost:3000', // Driver backend
+        process.env.rider_backend || 'http://localhost:8000', // Rider backend
         process.env.FRONTEND_APP_URL || 'http://localhost:3000'
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
@@ -78,7 +78,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Start the server
-const PORT = process.env.PORT || 3005;
+const PORT = process.env.PORT || 3007;
 httpServer.listen(PORT, () => {
     console.log(`API Gateway server running on port http://localhost:${PORT}`);
     console.log('Environment:', process.env.NODE_ENV);
