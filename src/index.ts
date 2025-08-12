@@ -10,81 +10,88 @@ import { authenticate } from './middleware/auth';
 import { routeMatcher, createServiceProxy } from './middleware/proxy';
 import { rateLimiter } from './middleware/rateLimiter';
 import { WebSocketService } from './services/websocketService';
+import ridesRouter from './routes/rides';
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
+const PORT = process.env.PORT || 3005;
 
-// Initialize WebSocket service
+// Initialize WebSocket service with the HTTP server
 const wsService = new WebSocketService(httpServer);
 
-
-
-// Middleware
-app.use(helmet());
+// CORS configuration
 app.use(cors({
-    origin: [
-        process.env.driver_backend || 'http://localhost:3000', // Driver backend
-        process.env.rider_backend || 'http://localhost:8000', // Rider backend
-        process.env.FRONTEND_APP_URL || 'http://localhost:3000'
-    ],
+  origin: [
+    process.env.FRONTEND_APP_URL || 'http://localhost:3000',
+    process.env.driver_backend || 'http://localhost:3000',
+    process.env.rider_backend || 'http://localhost:8000',
+    'https://www.shankhtech.com',
+    'https://pramaan.ondc.org',
+    // Add your Render domains here
+    'https://api-gateway-transit.vercel.app'
+  ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
-app.use(compression());
+
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(morgan('combined'));
 
+// Basic route
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    message: "API Gateway is running",
+    websocket: "enabled",
+    timestamp: new Date().toISOString()
+  });
+});
 
-app.get('/', (req,res)=>{
-    res.status(200).json({message: "hello"});
-})
+// Routes
+app.use('/api/gateway/rides', ridesRouter);
+
 // Health check endpoint
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    websocket: 'enabled',
+    environment: process.env.NODE_ENV || 'development',
+    services: {
+      driver_backend: process.env.driver_backend || 'http://localhost:3000',
+      rider_backend: process.env.rider_backend || 'http://localhost:8000'
+    },
+    websocket_connections: wsService.getIO().engine.clientsCount || 0
+  });
 });
 
-// Apply route matching middleware
-app.use(routeMatcher);
-
-// Apply rate limiting
-app.use(rateLimiter);
-
-// Apply authentication middleware for protected routes
-app.use((req, res, next) => {
-    const routeConfig = (req as any).routeConfig;
-    if (routeConfig?.authRequired) {
-        return authenticate(req, res, next);
-    }
-    next();
-});
-
-// Set up routes with their respective service proxies
-routes.forEach(route => {
-    app.use(route.path, createServiceProxy(route));
-});
-
-// Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-    console.error('Error:', err);
-    res.status(err.status || 500).json({
-        status: 'error',
-        message: err.message || 'Internal server error'
-    });
-});
-
-// Start the server
-const PORT = process.env.PORT || 3007;
+// Start server
 httpServer.listen(PORT, () => {
-    console.log(`API Gateway server running on port http://localhost:${PORT}`);
-    console.log('Environment:', process.env.NODE_ENV);
-    console.log('WebSocket server is ready for connections');
-    console.log('Available routes:');
-    routes.forEach(route => {
-        console.log(`${route.methods.join(',')} ${route.path} -> ${route.service}`);
-    });
+  console.log(`🚀 API Gateway running on port ${PORT}`);
+  console.log(`🔌 WebSocket server is ready on ws://localhost:${PORT}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log('📋 Available routes:');
+  console.log('GET  /health');
+  console.log('GET  /api/gateway/rides/health');
+  console.log('POST /api/gateway/rides/request');
+});
+
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('🛑 SIGTERM received, shutting down gracefully...');
+  httpServer.close(() => {
+    console.log('✅ HTTP server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 SIGINT received, shutting down gracefully...');
+  httpServer.close(() => {
+    console.log('✅ HTTP server closed');
+    process.exit(0);
+  });
 }); 

@@ -34,6 +34,11 @@ export const routeMatcher = (req: Request, res: Response, next: NextFunction) =>
   const path = req.path;
   const method = req.method;
 
+  // Allow rides routes to pass through without checking routes array
+  if (path.startsWith('/api/gateway/rides')) {
+    return next();
+  }
+
   const route = routes.find(
     (r) => r.path === path && r.methods.includes(method)
   );

@@ -1,6 +1,7 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import axios from 'axios';
+import { subscribeToDriverLocations } from './driverLocationSubscriber';
 
 interface AuthenticatedSocket {
   id: string;
@@ -26,14 +27,45 @@ export class WebSocketService {
         origin: [
           process.env.driver_backend || 'http://localhost:3000', // Driver backend
           process.env.rider_backend || 'http://localhost:8000', // Rider backend
-          process.env.FRONTEND_APP_URL || 'http://localhost:3000'
+          process.env.FRONTEND_APP_URL || 'http://localhost:3000',
+          'https://www.shankhtech.com',
+          'https://pramaan.ondc.org',
+          // Add your Render domains here
+          'https://api-gateway-transit.vercel.app'
         ],
         methods: ['GET', 'POST'],
         credentials: true
-      }
+      },
+      // Production WebSocket settings to prevent disconnections
+      pingTimeout: 60000, // 60 seconds
+      pingInterval: 25000, // 25 seconds
+      transports: ['websocket', 'polling'], // Enable both WebSocket and polling
+      allowEIO3: true, // Allow Engine.IO v3 clients
+      maxHttpBufferSize: 1e8, // 100 MB
+      connectTimeout: 45000, // 45 seconds
+
     });
 
+    // Subscribe to driver location updates from Redis
+    subscribeToDriverLocations(this.io, this.rideToRiderMap);
+
     this.setupSocketHandlers();
+    this.setupHeartbeat();
+  }
+
+  private setupHeartbeat() {
+    // Keep connections alive with periodic ping
+    setInterval(() => {
+      const connectedSockets = Array.from(this.io.sockets.sockets.values());
+      console.log(`🔄 Heartbeat: Pinging ${connectedSockets.length} connected sockets`);
+      
+      connectedSockets.forEach(socket => {
+        socket.emit('serverPing', { 
+          timestamp: Date.now(),
+          socketId: socket.id
+        });
+      });
+    }, 30000); // Every 30 seconds
   }
 
   private setupSocketHandlers() {
@@ -46,6 +78,13 @@ export class WebSocketService {
         socketId: socket.id,
         connectionType: 'pending authentication',
         timestamp: new Date().toISOString()
+      });
+
+      // Send connection info immediately
+      socket.emit('connectionInfo', {
+        socketId: socket.id,
+        timestamp: new Date().toISOString(),
+        serverTime: Date.now()
       });
 
       // Handle authentication
@@ -74,7 +113,8 @@ export class WebSocketService {
           userId = data.riderId;
           socket.userId = data.riderId;
           socket.userType = 'rider';
-          socket.join(`rider:${data.riderId}`);
+          socket.join('riders'); // Join the general riders room
+          socket.join(`rider:${data.riderId}`); // Also join specific rider room
           this.riderSockets.set(data.riderId, socket);
           if ('accessToken' in data && data.accessToken) {
             (socket as any).accessToken = data.accessToken;
@@ -136,7 +176,7 @@ export class WebSocketService {
           accessToken: data.accessToken // <-- store it here
         });
 
-        console.log('Sockets in drivers room:', Array.from(this.io.sockets.adapter.rooms.get('drivers') || []));
+        console.log('📡 Broadcasting to drivers room. Sockets in drivers room:', Array.from(this.io.sockets.adapter.rooms.get('drivers') || []));
         
         // Broadcast to all drivers with ALL ride details
         this.io.to('drivers').emit('newRideRequest', {
@@ -157,17 +197,17 @@ export class WebSocketService {
         const { rideId, driverId, timestamp, ...rideDetails } = data;
         // 1. Mark the ride as accepted in your DB or in-memory store
         // 2. Notify the correct rider (find by rideId)
+        const storedRideDetails = rideDetailsMap.get(rideId);
+        const accessToken = storedRideDetails?.accessToken;
+        // 2. Notify the correct rider (find by rideId)
         const riderId = this.rideToRiderMap.get(rideId);
         if (typeof riderId === 'string') {
           const riderSocket = this.riderSockets.get(riderId);
           if (riderSocket) {
-            riderSocket.emit('rideAccepted', { rideId, driverId, timestamp });
+            // Send rideCode to the rider
+            riderSocket.emit('rideAccepted', { rideId, driverId, timestamp, rideCode: storedRideDetails?.rideCode });
           }
         }
-
-        // Retrieve the full ride details from memory
-        const storedRideDetails = rideDetailsMap.get(rideId);
-        const accessToken = storedRideDetails?.accessToken;
         // Store the driver's access token if present
         if (data.accessToken) {
           storedRideDetails.driverAccessToken = data.accessToken;
@@ -315,12 +355,21 @@ export class WebSocketService {
         this.io.to('riders').emit('driverStatusUpdate', data);
       });
 
+      // Handle ping/pong for connection keep-alive
+      socket.on('ping', () => {
+        socket.emit('pong', { 
+          timestamp: Date.now(),
+          socketId: socket.id
+        });
+      });
+
       // Handle disconnection
-      socket.on('disconnect', () => {
-        console.log('Client Disconnected:', {
+      socket.on('disconnect', (reason) => {
+        console.log('🔌 Client Disconnected:', {
           socketId: socket.id,
           connectionType,
           userId,
+          reason,
           timestamp: new Date().toISOString()
         });
 
@@ -330,6 +379,8 @@ export class WebSocketService {
         } else if (connectionType === 'rider' && userId) {
           this.riderSockets.delete(userId);
         }
+
+        console.log(`📊 Total connections: ${this.io.engine.clientsCount}`);
       });
 
       // Handle errors
