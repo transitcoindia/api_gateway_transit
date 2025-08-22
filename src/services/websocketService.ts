@@ -2,6 +2,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import axios from 'axios';
 import { subscribeToDriverLocations } from './driverLocationSubscriber';
+import redis from '../redis';
 
 interface AuthenticatedSocket {
   id: string;
@@ -31,7 +32,8 @@ export class WebSocketService {
           'https://www.shankhtech.com',
           'https://pramaan.ondc.org',
           // Add your Render domains here
-          'https://api-gateway-transit.vercel.app'
+          'https://api-gateway-transit.vercel.app',
+          'https://api-gateway-transit.onrender.com'
         ],
         methods: ['GET', 'POST'],
         credentials: true
@@ -43,7 +45,11 @@ export class WebSocketService {
       allowEIO3: true, // Allow Engine.IO v3 clients
       maxHttpBufferSize: 1e8, // 100 MB
       connectTimeout: 45000, // 45 seconds
-
+      // Additional settings to prevent 429 errors
+      allowRequest: (req: any, callback: (err: Error | null, success: boolean) => void) => {
+        // Allow all WebSocket upgrade requests
+        callback(null, true);
+      }
     });
 
     // Subscribe to driver location updates from Redis
@@ -51,6 +57,7 @@ export class WebSocketService {
 
     this.setupSocketHandlers();
     this.setupHeartbeat();
+    this.setupErrorHandling();
   }
 
   private setupHeartbeat() {
@@ -66,6 +73,36 @@ export class WebSocketService {
         });
       });
     }, 30000); // Every 30 seconds
+  }
+
+  private setupErrorHandling() {
+    // Handle server-level errors
+    this.io.engine.on('connection_error', (err) => {
+      console.error('🔌 WebSocket Connection Error:', {
+        error: err.message,
+        code: err.code,
+        context: err.context,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Handle rate limiting errors
+    this.io.engine.on('error', (err) => {
+      console.error('🔌 WebSocket Engine Error:', {
+        error: err.message,
+        stack: err.stack,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    // Handle HTTP upgrade errors
+    this.io.engine.on('upgrade_error', (err) => {
+      console.error('🔌 WebSocket Upgrade Error:', {
+        error: err.message,
+        code: err.code,
+        timestamp: new Date().toISOString()
+      });
+    });
   }
 
   private setupSocketHandlers() {
@@ -130,7 +167,7 @@ export class WebSocketService {
         }
       });
 
-      // Handle driver location updates
+      // Handle driver location updates (legacy direct -> broadcast)
       socket.on('driverLocationUpdate', (data: { 
         driverId: string; 
         location: { latitude: number; longitude: number }; 
@@ -220,6 +257,13 @@ export class WebSocketService {
           console.error('No ride details found for rideId:', rideId);
           socket.emit('acceptRideAck', { rideId, status: 'error', message: 'Ride details not found' });
           return;
+        }
+
+        // Persist driver -> active ride mapping so location publisher can attach rideId
+        try {
+          await redis.set(`driver:active_ride:${driverId}`, rideId, 'EX', 7200);
+        } catch (e) {
+          console.error('Failed to set driver active ride mapping:', e);
         }
 
         const ridePayload = {

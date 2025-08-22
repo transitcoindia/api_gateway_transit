@@ -8,7 +8,7 @@ import dotenv from 'dotenv';
 import { routes } from './config/services';
 import { authenticate } from './middleware/auth';
 import { routeMatcher, createServiceProxy } from './middleware/proxy';
-import { rateLimiter } from './middleware/rateLimiter';
+import { rateLimiter, websocketRateLimiter, apiRateLimiter } from './middleware/rateLimiter';
 import { WebSocketService } from './services/websocketService';
 import ridesRouter from './routes/rides';
 
@@ -31,12 +31,17 @@ app.use(cors({
     'https://www.shankhtech.com',
     'https://pramaan.ondc.org',
     // Add your Render domains here
-    'https://api-gateway-transit.vercel.app'
+    'https://api-gateway-transit.vercel.app',
+    'https://api-gateway-transit.onrender.com'
   ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
+
+// Apply rate limiters
+app.use('/socket.io/', websocketRateLimiter); // WebSocket endpoint
+app.use('/api/', apiRateLimiter); // API endpoints
 
 app.use(express.json());
 
@@ -46,6 +51,22 @@ app.get('/', (req, res) => {
     message: "API Gateway is running",
     websocket: "enabled",
     timestamp: new Date().toISOString()
+  });
+});
+
+// WebSocket health check endpoint
+app.get('/websocket-health', (req, res) => {
+  const io = wsService.getIO();
+  const connectedClients = io.engine.clientsCount || 0;
+  const rooms = Array.from(io.sockets.adapter.rooms.keys());
+  
+  res.json({
+    status: 'ok',
+    websocket: 'enabled',
+    timestamp: new Date().toISOString(),
+    connected_clients: connectedClients,
+    active_rooms: rooms,
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
@@ -67,14 +88,34 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Error handling middleware
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Global error handler:', err);
+  
+  if (err.status === 429) {
+    return res.status(429).json({
+      error: 'Rate limit exceeded',
+      message: 'Too many requests, please try again later',
+      retryAfter: err.headers?.['retry-after'] || 60
+    });
+  }
+  
+  res.status(err.status || 500).json({
+    error: 'Internal server error',
+    message: process.env.NODE_ENV === 'production' ? 'Something went wrong' : err.message
+  });
+});
+
 // Start server
 httpServer.listen(PORT, () => {
   console.log(`🚀 API Gateway running on port ${PORT}`);
   console.log(`🔌 WebSocket server is ready on ws://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`🔌 WebSocket health: http://localhost:${PORT}/websocket-health`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log('📋 Available routes:');
   console.log('GET  /health');
+  console.log('GET  /websocket-health');
   console.log('GET  /api/gateway/rides/health');
   console.log('POST /api/gateway/rides/request');
 });
