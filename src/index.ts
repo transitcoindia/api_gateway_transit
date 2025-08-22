@@ -40,7 +40,7 @@ app.use(cors({
 }));
 
 // Apply rate limiters
-app.use('/socket.io/', websocketRateLimiter); // WebSocket endpoint
+// app.use('/socket.io/', websocketRateLimiter); // WebSocket endpoint - TEMPORARILY DISABLED
 app.use('/api/', apiRateLimiter); // API endpoints
 
 app.use(express.json());

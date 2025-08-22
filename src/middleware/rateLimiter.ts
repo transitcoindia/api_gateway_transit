@@ -22,10 +22,10 @@ export const createRateLimiter = (route: RouteConfig) => {
   });
 };
 
-// WebSocket-specific rate limiter - more lenient
+// WebSocket-specific rate limiter - much more lenient
 export const websocketRateLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 1 minute
-  max: 30, // 30 WebSocket connections per minute per IP
+  max: 100, // 100 WebSocket connections per minute per IP (increased from 30)
   message: {
     status: 'error',
     message: 'Too many WebSocket connections, please try again later'
@@ -34,6 +34,11 @@ export const websocketRateLimiter = rateLimit({
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful connections
   skipFailedRequests: false, // Count failed connections
+  // Add more lenient settings
+  skip: (req) => {
+    // Skip rate limiting for WebSocket upgrade requests
+    return req.headers.upgrade === 'websocket';
+  }
 });
 
 // General API rate limiter
