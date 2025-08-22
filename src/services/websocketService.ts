@@ -46,7 +46,7 @@ export class WebSocketService {
       maxHttpBufferSize: 1e8, // 100 MB
       connectTimeout: 45000, // 45 seconds
       // Additional settings to prevent 429 errors
-      allowRequest: (req: any, callback: (err: Error | null, success: boolean) => void) => {
+      allowRequest: (req: any, callback: (err: string | null, success: boolean) => void) => {
         // Allow all WebSocket upgrade requests
         callback(null, true);
       }
