@@ -24,6 +24,7 @@ export class WebSocketService {
 
   constructor(server: HTTPServer) {
     this.io = new SocketIOServer(server, {
+      path: '/socket.io/',
       cors: {
         origin: [
           process.env.driver_backend || 'http://localhost:3000', // Driver backend
@@ -41,8 +42,8 @@ export class WebSocketService {
       // Production WebSocket settings to prevent disconnections
       pingTimeout: 60000, // 60 seconds
       pingInterval: 25000, // 25 seconds
-      // Prefer pure WebSocket in production to reduce upgrade/polling churn that can trigger 429s
-      transports: process.env.NODE_ENV === 'production' ? ['websocket'] : ['websocket', 'polling'],
+      // Allow both transports; clients can start with polling if needed
+      transports: ['websocket', 'polling'],
       allowEIO3: true, // Allow Engine.IO v3 clients
       maxHttpBufferSize: 1e8, // 100 MB
       connectTimeout: 45000, // 45 seconds
