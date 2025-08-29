@@ -41,7 +41,8 @@ export class WebSocketService {
       // Production WebSocket settings to prevent disconnections
       pingTimeout: 60000, // 60 seconds
       pingInterval: 25000, // 25 seconds
-      transports: ['websocket', 'polling'], // Enable both WebSocket and polling
+      // Prefer pure WebSocket in production to reduce upgrade/polling churn that can trigger 429s
+      transports: process.env.NODE_ENV === 'production' ? ['websocket'] : ['websocket', 'polling'],
       allowEIO3: true, // Allow Engine.IO v3 clients
       maxHttpBufferSize: 1e8, // 100 MB
       connectTimeout: 45000, // 45 seconds

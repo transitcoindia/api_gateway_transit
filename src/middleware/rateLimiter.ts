@@ -24,21 +24,15 @@ export const createRateLimiter = (route: RouteConfig) => {
 
 // WebSocket-specific rate limiter - much more lenient
 export const websocketRateLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 100, // 100 WebSocket connections per minute per IP (increased from 30)
+  windowMs: 1 * 60 * 1000,
+  max: 1000, // effectively disabled but kept for future
   message: {
     status: 'error',
     message: 'Too many WebSocket connections, please try again later'
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true, // Don't count successful connections
-  skipFailedRequests: false, // Count failed connections
-  // Add more lenient settings
-  skip: (req) => {
-    // Skip rate limiting for WebSocket upgrade requests
-    return req.headers.upgrade === 'websocket';
-  }
+  skip: (req) => true // fully skip WS limiting for now
 });
 
 // General API rate limiter

@@ -19,6 +19,9 @@ const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 3005;
 
+// Behind Render/other proxies, trust X-Forwarded-* headers so rate limiters/IP logic work correctly
+app.set('trust proxy', 1);
+
 // Initialize WebSocket service with the HTTP server
 const wsService = new WebSocketService(httpServer);
 
@@ -40,7 +43,7 @@ app.use(cors({
 }));
 
 // Apply rate limiters
-// app.use('/socket.io/', websocketRateLimiter); // WebSocket endpoint
+// Do NOT rate limit WebSocket upgrade path; only apply to REST APIs
 app.use('/api/', apiRateLimiter); // API endpoints
 
 app.use(express.json());
