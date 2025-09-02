@@ -1,17 +1,18 @@
 import redis from '../redis';
+import { CHANNELS, RIDE_LAST_LOCATION_TTL_SECONDS } from '../config/env';
 import { Server as SocketIOServer } from 'socket.io';
 
 export function subscribeToDriverLocations(io: SocketIOServer, rideToRiderMap: Map<string, string>) {
   const sub = redis.duplicate();
-  sub.subscribe('driver_location_updates');
+  sub.subscribe(CHANNELS.DRIVER_LOCATION_UPDATES);
   sub.on('message', async (channel, message) => {
-    if (channel === 'driver_location_updates') {
+    if (channel === CHANNELS.DRIVER_LOCATION_UPDATES) {
       const data = JSON.parse(message);
       const { rideId } = data || {};
 
       // Cache last location by ride for GET fallback
       if (rideId) {
-        await redis.set(`ride:lastLocation:${rideId}`, message, 'EX', 7200);
+        await redis.set(`ride:lastLocation:${rideId}`, message, 'EX', RIDE_LAST_LOCATION_TTL_SECONDS);
       }
 
       // Targeted emit to the rider owning this ride
@@ -36,5 +37,5 @@ export function subscribeToDriverLocations(io: SocketIOServer, rideToRiderMap: M
     console.log('✅ Subscribed to Redis channel:', channel);
   });
 
-  console.log('API Gateway subscribed to driver_location_updates Redis channel');
+  console.log(`API Gateway subscribed to ${CHANNELS.DRIVER_LOCATION_UPDATES} Redis channel`);
 } 

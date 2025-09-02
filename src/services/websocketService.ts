@@ -2,6 +2,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import axios from 'axios';
 import { subscribeToDriverLocations } from './driverLocationSubscriber';
+import { subscribeToRideStatus } from './rideStatusSubscriber';
 import redis from '../redis';
 
 interface AuthenticatedSocket {
@@ -39,23 +40,26 @@ export class WebSocketService {
         methods: ['GET', 'POST'],
         credentials: true
       },
-      // Production WebSocket settings to prevent disconnections
+      // Production WebSocket settings to prevent disconnections and avoid polling 429s
       pingTimeout: 60000, // 60 seconds
       pingInterval: 25000, // 25 seconds
-      // Allow both transports; clients can start with polling if needed
+      // Allow websocket first; most clients use ws-only in production
       transports: ['websocket', 'polling'],
+      allowUpgrades: true,
       allowEIO3: true, // Allow Engine.IO v3 clients
       maxHttpBufferSize: 1e8, // 100 MB
       connectTimeout: 45000, // 45 seconds
       // Additional settings to prevent 429 errors
       allowRequest: (req: any, callback: (err: string | null, success: boolean) => void) => {
-        // Allow all WebSocket upgrade requests
+        // Always allow WebSocket upgrades; for polling, be permissive too
         callback(null, true);
       }
     });
 
     // Subscribe to driver location updates from Redis
     subscribeToDriverLocations(this.io, this.rideToRiderMap);
+    // Subscribe to ride status updates (e.g., end ride)
+    subscribeToRideStatus(this.io);
 
     this.setupSocketHandlers();
     this.setupHeartbeat();
@@ -245,7 +249,13 @@ export class WebSocketService {
           if (riderSocket) {
             // Send rideCode to the rider
             riderSocket.emit('rideAccepted', { rideId, driverId, timestamp, rideCode: storedRideDetails?.rideCode });
+          } else {
+            // Fallback broadcast if specific rider socket not found
+            this.io.to('riders').emit('rideAccepted', { rideId, driverId, timestamp, rideCode: storedRideDetails?.rideCode });
           }
+        } else {
+          // Fallback broadcast if rider mapping missing
+          this.io.to('riders').emit('rideAccepted', { rideId, driverId, timestamp, rideCode: storedRideDetails?.rideCode });
         }
         // Store the driver's access token if present
         if (data.accessToken) {
@@ -447,11 +457,169 @@ export class WebSocketService {
     return this.io;
   }
 
+  // Allow REST routes to broadcast a newly created ride request and seed internal maps
+  public broadcastRideRequestFromRest(params: {
+    rideId: string;
+    rideCode?: string;
+    riderId?: string;
+    accessToken?: string;
+    requestBody?: any; // original request body containing pickup/drop etc.
+    fare?: any;
+    candidateDrivers?: any[];
+  }) {
+    const { rideId, rideCode, riderId, accessToken, requestBody, fare, candidateDrivers } = params;
+    if (!rideId) {
+      console.warn('broadcastRideRequestFromRest called without rideId');
+      return;
+    }
+
+    // Seed mappings for later accept flow and location routing
+    if (riderId) {
+      this.rideToRiderMap.set(rideId, riderId);
+    }
+    const details = {
+      ...(requestBody || {}),
+      rideId,
+      rideCode,
+      riderId,
+      accessToken,
+      fare,
+      candidateDrivers
+    };
+    // Store for later use in acceptRide (tokens, coordinates, etc.)
+    rideDetailsMap.set(rideId, details);
+
+    // Broadcast to drivers room with concise payload
+    this.io.to('drivers').emit('newRideRequest', {
+      rideId,
+      rideCode,
+      ...((requestBody && (requestBody.pickup || requestBody.dropoff)) ? {
+        pickup: requestBody.pickup,
+        dropoff: requestBody.dropoff,
+        pickupAddress: requestBody.pickupAddress,
+        dropAddress: requestBody.dropAddress,
+        rideType: requestBody.rideType,
+      } : requestBody || {}),
+      fare,
+      candidateDrivers,
+      timestamp: new Date().toISOString()
+    });
+  }
+
   public getDriverSocket(driverId: string): AuthenticatedSocket | undefined {
     return this.driverSockets.get(driverId);
   }
 
   public getRiderSocket(riderId: string): AuthenticatedSocket | undefined {
     return this.riderSockets.get(riderId);
+  }
+
+  // Accept ride via REST (HTTP) - mirrors the WS 'acceptRide' handler
+  public async acceptRideFromRest(params: { rideId: string; driverId: string; driverAccessToken?: string }) {
+    const { rideId, driverId, driverAccessToken } = params;
+    const storedRideDetails: any = rideDetailsMap.get(rideId);
+    if (!storedRideDetails) {
+      return { ok: false, message: 'Ride details not found', riderStoreSuccess: false, driverStoreSuccess: false };
+    }
+
+    // Notify the rider via WS
+    const riderId = this.rideToRiderMap.get(rideId);
+    if (typeof riderId === 'string') {
+      const riderSocket = this.riderSockets.get(riderId);
+      if (riderSocket) {
+        riderSocket.emit('rideAccepted', { rideId, driverId, rideCode: storedRideDetails?.rideCode, timestamp: new Date().toISOString() });
+      } else {
+        this.io.to('riders').emit('rideAccepted', { rideId, driverId, rideCode: storedRideDetails?.rideCode, timestamp: new Date().toISOString() });
+      }
+    } else {
+      this.io.to('riders').emit('rideAccepted', { rideId, driverId, rideCode: storedRideDetails?.rideCode, timestamp: new Date().toISOString() });
+    }
+
+    // Persist driver -> active ride mapping so location publisher can attach rideId
+    try {
+      await redis.set(`driver:active_ride:${driverId}`, rideId, 'EX', 7200);
+    } catch (e) {
+      console.error('Failed to set driver active ride mapping (REST accept):', e);
+    }
+
+    // Prepare ride payload for backends
+    const ridePayload = {
+      rideId,
+      rideCode: storedRideDetails.rideCode || undefined,
+      status: 'accepted',
+      pickupLatitude: storedRideDetails.pickupLatitude ?? storedRideDetails.pickup?.latitude,
+      pickupLongitude: storedRideDetails.pickupLongitude ?? storedRideDetails.pickup?.longitude,
+      pickupAddress: storedRideDetails.pickupAddress,
+      dropLatitude: storedRideDetails.dropLatitude ?? storedRideDetails.dropoff?.latitude,
+      dropLongitude: storedRideDetails.dropLongitude ?? storedRideDetails.dropoff?.longitude,
+      dropAddress: storedRideDetails.dropAddress,
+      startTime: new Date().toISOString(),
+      endTime: null,
+      estimatedFare: storedRideDetails.estimatedFare,
+      actualFare: null,
+      estimatedDistance: storedRideDetails.estimatedDistance,
+      actualDistance: null,
+      estimatedDuration: storedRideDetails.estimatedDuration,
+      actualDuration: null,
+      baseFare: storedRideDetails.baseFare,
+      surgeMultiplier: storedRideDetails.surgeMultiplier || 1.0,
+      waitingTime: null,
+      cancellationFee: null,
+      cancellationReason: null,
+      cancelledBy: null,
+      paymentStatus: 'pending',
+      paymentMethod: null,
+      transactionId: null,
+      driverId,
+      riderId: storedRideDetails.riderId,
+      vehicleId: storedRideDetails.vehicleId || null,
+      serviceZoneId: storedRideDetails.serviceZoneId || null,
+      route: storedRideDetails.route || null,
+      waypoints: storedRideDetails.waypoints || null,
+      driverLocationUpdates: [],
+      timestamp: new Date().toISOString()
+    };
+
+    // Forward to rider backend
+    let riderStoreSuccess = false;
+    try {
+      const riderAccessToken = storedRideDetails?.accessToken;
+      if (!process.env.rider_backend) throw new Error('rider_backend URL not set');
+      await axios.post(
+        `${process.env.rider_backend}/api/rider/rides_accepted`,
+        ridePayload,
+        { headers: { Authorization: `Bearer ${riderAccessToken}` } }
+      );
+      riderStoreSuccess = true;
+    } catch (err) {
+      console.error('Failed to notify rider backend (REST accept):', (err as any).response?.data || (err as any).message);
+    }
+
+    // Forward to driver backend
+    let driverStoreSuccess = false;
+    try {
+      const driverBackendUrl = process.env.driver_backend;
+      if (!driverBackendUrl || !/^https?:\/\//.test(driverBackendUrl)) {
+        throw new Error('Invalid driver_backend URL');
+      }
+      await axios.post(
+        `${driverBackendUrl}/api/driver/rides_accepted`,
+        ridePayload,
+        { headers: { Authorization: `Bearer ${driverAccessToken || ''}` } }
+      );
+      driverStoreSuccess = true;
+    } catch (err) {
+      console.error('Failed to notify driver backend (REST accept):', (err as any).response?.data || (err as any).message);
+    }
+
+    const message = riderStoreSuccess && driverStoreSuccess
+      ? 'Ride stored successfully in both rider and driver backend.'
+      : riderStoreSuccess
+        ? 'Ride stored successfully in rider backend.'
+        : driverStoreSuccess
+          ? 'Ride stored successfully in driver backend.'
+          : 'Failed to persist ride details';
+
+    return { ok: true, message, riderStoreSuccess, driverStoreSuccess };
   }
 } 

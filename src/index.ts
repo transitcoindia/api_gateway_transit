@@ -6,18 +6,19 @@ import compression from 'compression';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { routes } from './config/services';
+import { PORT as GATEWAY_PORT, getAllowedOrigins } from './config/env';
 import { authenticate } from './middleware/auth';
 import { routeMatcher, createServiceProxy } from './middleware/proxy';
 import { rateLimiter, websocketRateLimiter, apiRateLimiter } from './middleware/rateLimiter';
 import { WebSocketService } from './services/websocketService';
-import ridesRouter from './routes/rides';
+import createRidesRouter from './routes/rides';
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
-const PORT = process.env.PORT || 3005;
+const PORT = GATEWAY_PORT;
 
 // Behind Render/other proxies, trust X-Forwarded-* headers so rate limiters/IP logic work correctly
 app.set('trust proxy', 1);
@@ -27,19 +28,10 @@ const wsService = new WebSocketService(httpServer);
 
 // CORS configuration
 app.use(cors({
-  origin: [
-    process.env.FRONTEND_APP_URL || 'http://localhost:3000',
-    process.env.driver_backend || 'http://localhost:3000',
-    process.env.rider_backend || 'http://localhost:8000',
-    'https://www.shankhtech.com',
-    'https://pramaan.ondc.org',
-    // Add your Render domains here
-    'https://api-gateway-transit.vercel.app',
-    'https://api-gateway-transit.onrender.com'
-  ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
+  origin: getAllowedOrigins(),
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 // Apply rate limiters
@@ -74,6 +66,7 @@ app.get('/websocket-health', (req, res) => {
 });
 
 // Routes
+const ridesRouter = createRidesRouter(wsService);
 app.use('/api/gateway/rides', ridesRouter);
 
 // Health check endpoint

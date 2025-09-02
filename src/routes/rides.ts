@@ -1,8 +1,11 @@
 import express from 'express';
 import axios from 'axios';
 import dotenv from 'dotenv';
+import redis from '../redis';
+import { WebSocketService } from '../services/websocketService';
 dotenv.config();
 
+export const createRidesRouter = (wsService: WebSocketService) => {
 const ridesRouter = express.Router();
 
 // Health check endpoint for rides service
@@ -26,6 +29,22 @@ ridesRouter.post('/request', async (req, res) => {
         ...(req.headers.authorization ? { 'Authorization': req.headers.authorization } : {})
       }
     });
+    try {
+      const data = response.data || {};
+      const rideId = data.rideId;
+      if (rideId) {
+        wsService.broadcastRideRequestFromRest({
+          rideId,
+          rideCode: data.rideCode,
+          riderId: (req as any)?.user?.id,
+          requestBody: req.body,
+          fare: data.fare,
+          candidateDrivers: data.candidateDrivers
+        });
+      }
+    } catch (e) {
+      console.warn('Non-fatal broadcast error:', (e as any)?.message || e);
+    }
     res.status(response.status).json(response.data);
   } catch (error: any) {
     if (error.response) {
@@ -36,4 +55,74 @@ ridesRouter.post('/request', async (req, res) => {
   }
 });
 
-export default ridesRouter; 
+// Driver accepts ride (HTTP alternative to WS)
+ridesRouter.post('/accept', async (req, res) => {
+  try {
+    const { rideId, driverId } = req.body || {};
+    const authHeader = req.headers.authorization;
+    const driverAccessToken = authHeader && authHeader.startsWith('Bearer ')
+      ? authHeader.split(' ')[1]
+      : undefined;
+    if (!rideId || !driverId) {
+      return res.status(400).json({ error: 'rideId and driverId are required' });
+    }
+    const result = await wsService.acceptRideFromRest({ rideId, driverId, driverAccessToken });
+    if (!result.ok) {
+      return res.status(404).json({ error: result.message });
+    }
+    return res.json({ success: true, message: result.message });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Failed to accept ride', details: err.message });
+  }
+});
+
+// --------------------
+// Testing/Utilities (mounted on the same router instance)
+// --------------------
+
+// Get last known location for a ride (cached by API Gateway subscriber)
+ridesRouter.get('/last-location/ride/:rideId', async (req, res) => {
+  try {
+    const { rideId } = req.params as { rideId: string };
+    const raw = await redis.get(`ride:lastLocation:${rideId}`);
+    if (!raw) {
+      return res.status(404).json({ error: 'No location found for this ride' });
+    }
+    return res.json(JSON.parse(raw));
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Failed to fetch last location', details: err.message });
+  }
+});
+
+// Get last known location for a driver
+ridesRouter.get('/last-location/driver/:driverId', async (req, res) => {
+  try {
+    const { driverId } = req.params as { driverId: string };
+    const raw = await redis.get(`driver:location:${driverId}`);
+    if (!raw) {
+      return res.status(404).json({ error: 'No location found for this driver' });
+    }
+    return res.json(JSON.parse(raw));
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Failed to fetch driver location', details: err.message });
+  }
+});
+
+// Map a driver to an active ride (useful for testing without full accept flow)
+ridesRouter.post('/testing/map-active-ride', async (req, res) => {
+  try {
+    const { driverId, rideId, ttlSeconds = 7200 } = req.body || {};
+    if (!driverId || !rideId) {
+      return res.status(400).json({ error: 'driverId and rideId are required' });
+    }
+    await redis.set(`driver:active_ride:${driverId}`, rideId, 'EX', Number(ttlSeconds));
+    return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Failed to map active ride', details: err.message });
+  }
+});
+
+return ridesRouter; 
+}
+
+export default createRidesRouter; 
