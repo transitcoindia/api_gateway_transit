@@ -22,17 +22,29 @@ export const createRateLimiter = (route: RouteConfig) => {
   });
 };
 
-// WebSocket-specific rate limiter - much more lenient
+// WebSocket-specific rate limiter - COMPLETELY DISABLED for Render
 export const websocketRateLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
-  max: 1000, // effectively disabled but kept for future
+  max: 10000, // effectively unlimited
   message: {
     status: 'error',
     message: 'Too many WebSocket connections, please try again later'
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => true // fully skip WS limiting for now
+  skip: (req) => {
+    // Skip ALL WebSocket-related requests to prevent 429s
+    const path = req.path || '';
+    const upgrade = req.headers.upgrade;
+    const connection = req.headers.connection;
+    
+    return (
+      path.includes('/socket.io/') ||
+      upgrade === 'websocket' ||
+      connection === 'upgrade' ||
+      req.method === 'GET' && path.includes('socket.io')
+    );
+  }
 });
 
 // General API rate limiter

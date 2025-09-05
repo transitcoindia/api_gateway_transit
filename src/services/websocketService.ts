@@ -4,6 +4,7 @@ import axios from 'axios';
 import { subscribeToDriverLocations } from './driverLocationSubscriber';
 import { subscribeToRideStatus } from './rideStatusSubscriber';
 import redis from '../redis';
+import { getWebSocketConfig } from '../config/websocket';
 
 interface AuthenticatedSocket {
   id: string;
@@ -24,37 +25,7 @@ export class WebSocketService {
   private rideToRiderMap: Map<string, string> = new Map();
 
   constructor(server: HTTPServer) {
-    this.io = new SocketIOServer(server, {
-      path: '/socket.io/',
-      cors: {
-        origin: [
-          process.env.driver_backend || 'http://localhost:3000', // Driver backend
-          process.env.rider_backend || 'http://localhost:8000', // Rider backend
-          process.env.FRONTEND_APP_URL || 'http://localhost:3000',
-          'https://www.shankhtech.com',
-          'https://pramaan.ondc.org',
-          // Add your Render domains here
-          'https://api-gateway-transit.vercel.app',
-          'https://api-gateway-transit.onrender.com'
-        ],
-        methods: ['GET', 'POST'],
-        credentials: true
-      },
-      // Production WebSocket settings to prevent disconnections and avoid polling 429s
-      pingTimeout: 60000, // 60 seconds
-      pingInterval: 25000, // 25 seconds
-      // Allow websocket first; most clients use ws-only in production
-      transports: ['websocket', 'polling'],
-      allowUpgrades: true,
-      allowEIO3: true, // Allow Engine.IO v3 clients
-      maxHttpBufferSize: 1e8, // 100 MB
-      connectTimeout: 45000, // 45 seconds
-      // Additional settings to prevent 429 errors
-      allowRequest: (req: any, callback: (err: string | null, success: boolean) => void) => {
-        // Always allow WebSocket upgrades; for polling, be permissive too
-        callback(null, true);
-      }
-    });
+    this.io = new SocketIOServer(server, getWebSocketConfig());
 
     // Subscribe to driver location updates from Redis
     subscribeToDriverLocations(this.io, this.rideToRiderMap);

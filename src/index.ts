@@ -9,7 +9,8 @@ import { routes } from './config/services';
 import { PORT as GATEWAY_PORT, getAllowedOrigins } from './config/env';
 import { authenticate } from './middleware/auth';
 import { routeMatcher, createServiceProxy } from './middleware/proxy';
-import { rateLimiter, websocketRateLimiter, apiRateLimiter } from './middleware/rateLimiter';
+// Rate limiting configuration
+import { shouldApplyRateLimiting, getRateLimitingMessage } from './config/rateLimiting';
 import { WebSocketService } from './services/websocketService';
 import createRidesRouter from './routes/rides';
 
@@ -34,9 +35,12 @@ app.use(cors({
   credentials: true
 }));
 
-// Apply rate limiters
-// Do NOT rate limit WebSocket upgrade path; only apply to REST APIs
-app.use('/api/', apiRateLimiter); // API endpoints
+// Rate limiting configuration
+console.log(`📊 ${getRateLimitingMessage()}`);
+if (!shouldApplyRateLimiting()) {
+  console.log('⚠️  Rate limiting disabled to prevent 429 errors on Render');
+  console.log('💡 For production security, implement rate limiting at CDN/load balancer level');
+}
 
 app.use(express.json());
 
@@ -87,14 +91,6 @@ app.get('/health', (req, res) => {
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Global error handler:', err);
-  
-  if (err.status === 429) {
-    return res.status(429).json({
-      error: 'Rate limit exceeded',
-      message: 'Too many requests, please try again later',
-      retryAfter: err.headers?.['retry-after'] || 60
-    });
-  }
   
   res.status(err.status || 500).json({
     error: 'Internal server error',
