@@ -1,12 +1,81 @@
 import redis from '../redis';
 import { Server as SocketIOServer } from 'socket.io';
 
-export function subscribeToRideStatus(io: SocketIOServer) {
-  const sub = redis.duplicate();
-  sub.subscribe('ride_status_updates');
+const CHANNEL = 'ride_status_updates';
+let subscriptionClient: ReturnType<typeof redis.duplicate> | null = null;
+let isSubscribed = false;
 
-  sub.on('message', async (channel, message) => {
-    if (channel === 'ride_status_updates') {
+function createSubscription(io: SocketIOServer) {
+  // Close existing subscription if any
+  if (subscriptionClient) {
+    try {
+      subscriptionClient.unsubscribe();
+      subscriptionClient.quit();
+    } catch (e) {
+      // Ignore errors when closing
+    }
+  }
+
+  // Create new subscription client with same config as main client
+  subscriptionClient = redis.duplicate({
+    retryStrategy: (times: number) => {
+      const delay = Math.min(times * 50, 2000);
+      console.log(`🔄 Redis subscription reconnecting (attempt ${times}) in ${delay}ms...`);
+      return delay;
+    },
+    maxRetriesPerRequest: 3,
+    enableReadyCheck: true,
+    enableOfflineQueue: true,
+    connectTimeout: 10000,
+    keepAlive: 30000,
+  });
+
+  // Handle connection events
+  subscriptionClient.on('connect', () => {
+    console.log('✅ Redis subscription client connected');
+  });
+
+  subscriptionClient.on('ready', () => {
+    console.log('✅ Redis subscription client ready');
+    // Resubscribe when reconnected
+    if (!isSubscribed) {
+      subscriptionClient!.subscribe(CHANNEL);
+    }
+  });
+
+  subscriptionClient.on('error', (error: Error) => {
+    // Handle specific error types gracefully
+    if (error.message.includes('ECONNRESET')) {
+      console.log('⚠️ Redis subscription connection reset - will reconnect automatically');
+      isSubscribed = false;
+    } else if (error.message.includes('ECONNREFUSED')) {
+      console.error('❌ Redis subscription connection refused');
+    } else if (error.message.includes('ETIMEDOUT')) {
+      console.log('⚠️ Redis subscription connection timeout - will retry');
+      isSubscribed = false;
+    } else {
+      console.error('❌ Redis subscription error:', error.message);
+    }
+  });
+
+  subscriptionClient.on('close', () => {
+    console.log('⚠️ Redis subscription connection closed');
+    isSubscribed = false;
+  });
+
+  subscriptionClient.on('reconnecting', (delay: number) => {
+    console.log(`🔄 Redis subscription reconnecting in ${delay}ms...`);
+    isSubscribed = false;
+  });
+
+  subscriptionClient.on('end', () => {
+    console.log('⚠️ Redis subscription connection ended');
+    isSubscribed = false;
+  });
+
+  // Handle messages
+  subscriptionClient.on('message', async (channel, message) => {
+    if (channel === CHANNEL) {
       try {
         const data = JSON.parse(message);
         const { rideId, riderId } = data || {};
@@ -21,15 +90,23 @@ export function subscribeToRideStatus(io: SocketIOServer) {
     }
   });
 
-  sub.on('error', (error) => {
-    console.error('❌ Redis ride status subscription error:', error);
-  });
-
-  sub.on('subscribe', (channel) => {
+  // Handle subscription events
+  subscriptionClient.on('subscribe', (channel) => {
     console.log('✅ Subscribed to Redis channel (status):', channel);
+    isSubscribed = true;
   });
 
+  subscriptionClient.on('psubscribe', (pattern) => {
+    console.log('✅ Subscribed to Redis pattern:', pattern);
+  });
+
+  // Initial subscribe
+  subscriptionClient.subscribe(CHANNEL);
   console.log('API Gateway subscribed to ride_status_updates Redis channel');
+}
+
+export function subscribeToRideStatus(io: SocketIOServer) {
+  createSubscription(io);
 }
 
 
