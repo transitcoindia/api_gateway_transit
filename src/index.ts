@@ -5,12 +5,13 @@ import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
-import { routes } from './config/services';
 import { PORT as GATEWAY_PORT, getAllowedOrigins } from './config/env';
 import { authenticate } from './middleware/auth';
 import { routeMatcher, createServiceProxy } from './middleware/proxy';
 // Rate limiting configuration
 import { shouldApplyRateLimiting, getRateLimitingMessage } from './config/rateLimiting';
+import { rateLimiter } from './middleware/rateLimiter';
+import { AuthenticatedRequest, RouteConfig } from './types';
 import { WebSocketService } from './services/websocketService';
 import createRidesRouter from './routes/rides';
 
@@ -86,6 +87,38 @@ app.get('/health', (req, res) => {
     },
     websocket_connections: wsService.getIO().engine.clientsCount || 0
   });
+});
+
+// Proxy + middleware pipeline for API routes
+app.use(routeMatcher);
+
+if (shouldApplyRateLimiting()) {
+  app.use(rateLimiter);
+}
+
+const getRouteConfig = (req: express.Request): RouteConfig | undefined => {
+  return (req as any).routeConfig as RouteConfig | undefined;
+};
+
+app.use((req, res, next) => {
+  const routeConfig = getRouteConfig(req);
+
+  if (!routeConfig || !routeConfig.authRequired) {
+    return next();
+  }
+
+  return authenticate(req as AuthenticatedRequest, res, next);
+});
+
+app.use((req, res, next) => {
+  const routeConfig = getRouteConfig(req);
+
+  if (!routeConfig) {
+    return next();
+  }
+
+  const proxy = createServiceProxy(routeConfig);
+  return proxy(req, res, next);
 });
 
 // Error handling middleware

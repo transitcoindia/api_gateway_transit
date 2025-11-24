@@ -8,8 +8,11 @@ const http_1 = require("http");
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const env_1 = require("./config/env");
+const auth_1 = require("./middleware/auth");
+const proxy_1 = require("./middleware/proxy");
 // Rate limiting configuration
 const rateLimiting_1 = require("./config/rateLimiting");
+const rateLimiter_1 = require("./middleware/rateLimiter");
 const websocketService_1 = require("./services/websocketService");
 const rides_1 = __importDefault(require("./routes/rides"));
 // Load environment variables
@@ -73,6 +76,29 @@ app.get('/health', (req, res) => {
         },
         websocket_connections: wsService.getIO().engine.clientsCount || 0
     });
+});
+// Proxy + middleware pipeline for API routes
+app.use(proxy_1.routeMatcher);
+if ((0, rateLimiting_1.shouldApplyRateLimiting)()) {
+    app.use(rateLimiter_1.rateLimiter);
+}
+const getRouteConfig = (req) => {
+    return req.routeConfig;
+};
+app.use((req, res, next) => {
+    const routeConfig = getRouteConfig(req);
+    if (!routeConfig || !routeConfig.authRequired) {
+        return next();
+    }
+    return (0, auth_1.authenticate)(req, res, next);
+});
+app.use((req, res, next) => {
+    const routeConfig = getRouteConfig(req);
+    if (!routeConfig) {
+        return next();
+    }
+    const proxy = (0, proxy_1.createServiceProxy)(routeConfig);
+    return proxy(req, res, next);
 });
 // Error handling middleware
 app.use((err, req, res, next) => {
