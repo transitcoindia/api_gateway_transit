@@ -76,6 +76,24 @@ exports.routes = [
         authRequired: false
     },
     {
+        path: '/api/driver/login/email',
+        service: 'driver',
+        methods: ['POST'],
+        authRequired: false
+    },
+    {
+        path: '/api/driver/login/phoneNumber',
+        service: 'driver',
+        methods: ['POST'],
+        authRequired: false
+    },
+    {
+        path: '/api/driver/login/verify-otp',
+        service: 'driver',
+        methods: ['POST'],
+        authRequired: false
+    },
+    {
         path: '/api/driver/documents/upload',
         service: 'driver',
         methods: ['POST'],
