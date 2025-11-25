@@ -1,15 +1,54 @@
 import { ServerOptions } from 'socket.io';
+import { DRIVER_BACKEND_URL, RIDER_BACKEND_URL, getAllowedOrigins } from './env';
 
 export const getWebSocketConfig = (): Partial<ServerOptions> => {
   const isProduction = process.env.NODE_ENV === 'production';
+  
+  // Get all allowed origins for WebSocket (same as HTTP CORS)
+  const allowedOrigins = getAllowedOrigins();
   
   return {
     // Path configuration
     path: '/socket.io/',
     
-    // CORS configuration
+    // CORS configuration - allow driver and rider backends, plus public origin
     cors: {
-      origin: process.env.API_GATEWAY_PUBLIC_ORIGIN || 'https://api-gateway-transit.onrender.com',
+      origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps, server-to-server)
+        if (!origin) {
+          return callback(null, true);
+        }
+        
+        // Check if origin is in allowed list
+        if (allowedOrigins.includes(origin)) {
+          return callback(null, true);
+        }
+        
+        // Also allow driver and rider backend URLs (in case they're not in the list)
+        const driverUrl = DRIVER_BACKEND_URL.replace(/\/$/, '');
+        const riderUrl = RIDER_BACKEND_URL.replace(/\/$/, '');
+        const originClean = origin.replace(/\/$/, '');
+        
+        if (originClean === driverUrl || originClean === riderUrl) {
+          return callback(null, true);
+        }
+        
+        // Allow API Gateway public origin
+        const publicOrigin = process.env.API_GATEWAY_PUBLIC_ORIGIN || 'https://api-gateway-transit.onrender.com';
+        if (originClean === publicOrigin.replace(/\/$/, '')) {
+          return callback(null, true);
+        }
+        
+        // In development, be more permissive
+        if (!isProduction) {
+          console.log(`⚠️ WebSocket CORS: Allowing origin in dev mode: ${origin}`);
+          return callback(null, true);
+        }
+        
+        // Reject in production if not in allowed list
+        console.warn(`❌ WebSocket CORS: Rejected origin: ${origin}`);
+        callback(new Error('Not allowed by CORS'));
+      },
       methods: ['GET', 'POST'],
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'User-Agent']
