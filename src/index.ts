@@ -45,12 +45,21 @@ if (!shouldApplyRateLimiting()) {
 
 app.use(express.json());
 
+// Logging middleware - Log ALL incoming requests
+app.use((req, res, next) => {
+  console.log(`📨 Incoming request: ${req.method} ${req.path}`);
+  console.log(`   Headers: ${JSON.stringify(req.headers)}`);
+  console.log(`   Body: ${JSON.stringify(req.body)}`);
+  next();
+});
+
 // Basic route
 app.get('/', (req, res) => {
   res.status(200).json({ 
     message: "API Gateway is running",
     websocket: "enabled",
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    deployedAt: "https://api-gateway-transit-iywb.onrender.com"
   });
 });
 
@@ -76,18 +85,149 @@ app.use('/api/gateway/rides', ridesRouter);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  console.log('🏥 Health check requested');
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     websocket: 'enabled',
     environment: process.env.NODE_ENV || 'development',
     services: {
-      driver_backend: process.env.driver_backend || 'http://localhost:3000',
-      rider_backend: process.env.rider_backend || 'http://localhost:8000'
+      driver_backend_url: DRIVER_BACKEND_URL,
+      rider_backend_url: RIDER_BACKEND_URL
     },
-    websocket_connections: wsService.getIO().engine.clientsCount || 0
+    env_vars: {
+      DRIVER_SERVICE_URL: process.env.DRIVER_SERVICE_URL || 'NOT SET',
+      driver_backend: process.env.driver_backend || 'NOT SET',
+      RIDER_BACKEND_URL: process.env.RIDER_BACKEND_URL || 'NOT SET',
+      rider_backend: process.env.rider_backend || 'NOT SET'
+    },
+    websocket_connections: wsService.getIO().engine.clientsCount || 0,
+    deployed_url: 'https://api-gateway-transit-iywb.onrender.com'
   });
 });
+
+// Network connectivity test endpoint - Tests Render's ability to reach AWS backends
+app.get('/debug/network-test', async (req, res) => {
+  console.log('🔍 Network connectivity test requested');
+  
+  const results: any = {
+    timestamp: new Date().toISOString(),
+    render_environment: process.env.NODE_ENV || 'development',
+    configured_urls: {
+      driver_backend: DRIVER_BACKEND_URL,
+      rider_backend: RIDER_BACKEND_URL
+    },
+    tests: {}
+  };
+
+  // Test Driver Backend
+  console.log('Testing Driver Backend connectivity...');
+  results.tests.driver_backend = await testBackendConnectivity(
+    'Driver Backend',
+    DRIVER_BACKEND_URL
+  );
+
+  // Test Rider Backend
+  console.log('Testing Rider Backend connectivity...');
+  results.tests.rider_backend = await testBackendConnectivity(
+    'Rider Backend',
+    RIDER_BACKEND_URL
+  );
+
+  // Overall status
+  const allPassed = Object.values(results.tests).every(
+    (test: any) => test.reachable === true
+  );
+  
+  results.overall_status = allPassed ? '✅ All services reachable' : '❌ Some services unreachable';
+  results.summary = {
+    driver_backend_reachable: results.tests.driver_backend.reachable,
+    rider_backend_reachable: results.tests.rider_backend.reachable
+  };
+
+  console.log('Network test results:', JSON.stringify(results, null, 2));
+  
+  res.json(results);
+});
+
+// Helper function to test backend connectivity
+async function testBackendConnectivity(serviceName: string, baseUrl: string) {
+  const result: any = {
+    service: serviceName,
+    url: baseUrl,
+    reachable: false,
+    response_time_ms: null,
+    status_code: null,
+    error: null,
+    health_endpoint_tested: `${baseUrl}/health`
+  };
+
+  try {
+    const startTime = Date.now();
+    
+    // Try to fetch the health endpoint
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    
+    const response = await fetch(`${baseUrl}/health`, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'API-Gateway-Network-Test'
+      }
+    });
+    
+    clearTimeout(timeoutId);
+    const endTime = Date.now();
+    
+    result.response_time_ms = endTime - startTime;
+    result.status_code = response.status;
+    result.reachable = response.ok; // true if status 200-299
+    
+    // Try to read response body
+    try {
+      const text = await response.text();
+      result.response_preview = text.substring(0, 200); // First 200 chars
+      
+      // Try to parse as JSON
+      try {
+        result.response_data = JSON.parse(text);
+      } catch (e) {
+        // Not JSON, that's okay
+      }
+    } catch (e) {
+      result.response_preview = 'Could not read response body';
+    }
+    
+    console.log(`✅ ${serviceName} reachable: ${result.status_code} in ${result.response_time_ms}ms`);
+    
+  } catch (error: any) {
+    console.error(`❌ ${serviceName} connection failed:`, error.message);
+    
+    result.reachable = false;
+    result.error = error.message;
+    
+    // Categorize the error
+    if (error.name === 'AbortError') {
+      result.error_type = 'TIMEOUT';
+      result.error_details = 'Connection timed out after 10 seconds - possible network/firewall issue';
+    } else if (error.message.includes('ENOTFOUND')) {
+      result.error_type = 'DNS_RESOLUTION_FAILED';
+      result.error_details = 'Could not resolve hostname - check DNS or URL';
+    } else if (error.message.includes('ECONNREFUSED')) {
+      result.error_type = 'CONNECTION_REFUSED';
+      result.error_details = 'Connection refused - service may be down or port blocked';
+    } else if (error.message.includes('ETIMEDOUT')) {
+      result.error_type = 'NETWORK_TIMEOUT';
+      result.error_details = 'Network timeout - check AWS Security Groups allow Render IPs';
+    } else {
+      result.error_type = 'UNKNOWN';
+      result.error_details = error.message;
+    }
+  }
+
+  return result;
+}
 
 // Proxy + middleware pipeline for API routes
 app.use(routeMatcher);
