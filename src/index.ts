@@ -5,7 +5,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
-import { PORT as GATEWAY_PORT, getAllowedOrigins } from './config/env';
+import { PORT as GATEWAY_PORT, getAllowedOrigins, DRIVER_BACKEND_URL, RIDER_BACKEND_URL } from './config/env';
 import { authenticate } from './middleware/auth';
 import { routeMatcher, createServiceProxy } from './middleware/proxy';
 // Rate limiting configuration
@@ -138,11 +138,23 @@ httpServer.listen(PORT, () => {
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔌 WebSocket health: http://localhost:${PORT}/websocket-health`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log('📋 Available routes:');
+  console.log('\n🔗 Backend Service URLs:');
+  console.log(`   Driver Backend: ${DRIVER_BACKEND_URL}`);
+  console.log(`   Rider Backend:  ${RIDER_BACKEND_URL}`);
+  console.log('\n📋 Available routes:');
   console.log('GET  /health');
   console.log('GET  /websocket-health');
   console.log('GET  /api/gateway/rides/health');
   console.log('POST /api/gateway/rides/request');
+  
+  // Warn if using localhost URLs in production
+  if (process.env.NODE_ENV === 'production') {
+    if (DRIVER_BACKEND_URL.includes('localhost') || RIDER_BACKEND_URL.includes('localhost')) {
+      console.warn('\n⚠️  WARNING: Using localhost URLs in production!');
+      console.warn('   Please set DRIVER_SERVICE_URL and TRANSIT_SERVICE_URL environment variables');
+      console.warn('   in your Render dashboard to point to production backend services.');
+    }
+  }
 });
 
 // Graceful shutdown handling

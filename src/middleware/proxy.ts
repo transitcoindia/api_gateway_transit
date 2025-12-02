@@ -39,9 +39,38 @@ export const routeMatcher = (req: Request, res: Response, next: NextFunction) =>
     return next();
   }
 
-  const route = routes.find(
+  // First try exact match
+  let route = routes.find(
     (r) => r.path === path && r.methods.includes(method)
   );
+
+  // If no exact match, try wildcard matching for driver routes
+  if (!route && path.startsWith('/api/driver/')) {
+    // Check if there's a wildcard route for driver service
+    const driverService = services['driver'];
+    if (driverService) {
+      // Create a dynamic route config for unmatched driver routes
+      route = {
+        path: path,
+        service: 'driver',
+        methods: [method as any],
+        authRequired: true // Default to requiring auth for driver routes
+      };
+    }
+  }
+
+  // If still no route, try wildcard matching for transit routes
+  if (!route && (path.startsWith('/api/auth/') || path.startsWith('/api/cab/') || path.startsWith('/api/user/'))) {
+    const transitService = services['transit'];
+    if (transitService) {
+      route = {
+        path: path,
+        service: 'transit',
+        methods: [method as any],
+        authRequired: true
+      };
+    }
+  }
 
   if (!route) {
     return res.status(404).json({

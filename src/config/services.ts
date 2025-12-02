@@ -1,13 +1,14 @@
 import { ServiceConfig, RouteConfig } from '../types';
+import { DRIVER_BACKEND_URL, RIDER_BACKEND_URL } from './env';
 
 export const services: Record<string, ServiceConfig> = {
   transit: {
-    url: process.env.TRANSIT_SERVICE_URL || 'http://localhost:8000',
+    url: RIDER_BACKEND_URL,
     routes: ['/api/auth', '/api/cab', '/api/user', '/api/driver'],
     authRequired: true
   },
   driver: {
-    url: process.env.DRIVER_SERVICE_URL || 'http://localhost:3000',
+    url: DRIVER_BACKEND_URL,
     routes: ['/api/driver'],
     authRequired: true
   }
@@ -105,6 +106,78 @@ export const routes: RouteConfig[] = [
     path: '/api/driver/profile',
     service: 'driver',
     methods: ['GET'],
+    authRequired: true
+  },
+  {
+    path: '/api/driver/profile/completion',
+    service: 'driver',
+    methods: ['GET'],
+    authRequired: true
+  },
+  {
+    path: '/api/driver/profile/image',
+    service: 'driver',
+    methods: ['POST'],
+    authRequired: true
+  },
+  {
+    path: '/api/driver/subscription/activate',
+    service: 'driver',
+    methods: ['POST'],
+    authRequired: true
+  },
+  {
+    path: '/api/driver/rides_accepted',
+    service: 'driver',
+    methods: ['POST'],
+    authRequired: true
+  },
+  {
+    path: '/api/driver/start_ride',
+    service: 'driver',
+    methods: ['POST'],
+    authRequired: true
+  },
+  {
+    path: '/api/driver/end_ride',
+    service: 'driver',
+    methods: ['POST'],
+    authRequired: true
+  },
+  {
+    path: '/api/driver/verify-registration-otp',
+    service: 'driver',
+    methods: ['POST'],
+    authRequired: false
+  },
+  {
+    path: '/api/driver/verify-email',
+    service: 'driver',
+    methods: ['GET'],
+    authRequired: false
+  },
+  {
+    path: '/api/driver/auth/google',
+    service: 'driver',
+    methods: ['POST'],
+    authRequired: false
+  },
+  {
+    path: '/api/driver/password-reset/request-otp',
+    service: 'driver',
+    methods: ['POST'],
+    authRequired: false
+  },
+  {
+    path: '/api/driver/password-reset/verify-otp',
+    service: 'driver',
+    methods: ['POST'],
+    authRequired: false
+  },
+  {
+    path: '/api/driver/documents/vehicleInfo',
+    service: 'driver',
+    methods: ['POST'],
     authRequired: true
   }
 ]; 

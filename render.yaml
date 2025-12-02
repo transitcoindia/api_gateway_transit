@@ -9,4 +9,16 @@ services:
         value: production
       - key: PORT
         value: 3005
+      # ⚠️ IMPORTANT: Set these to your production backend service URLs
+      # These can be set in Render dashboard under Environment Variables
+      # Example values (replace with your actual production URLs):
+      # - key: DRIVER_SERVICE_URL
+      #   value: https://your-driver-backend.onrender.com
+      # - key: TRANSIT_SERVICE_URL
+      #   value: https://your-transit-backend.onrender.com
+      # Or use alternative env var names:
+      # - key: DRIVER_BACKEND_URL
+      #   value: https://your-driver-backend.onrender.com
+      # - key: RIDER_BACKEND_URL
+      #   value: https://your-transit-backend.onrender.com
 
