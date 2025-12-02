@@ -62,13 +62,16 @@ export const routeMatcher = (req: Request, res: Response, next: NextFunction) =>
     const driverService = services['driver'];
     if (driverService) {
       console.log(`✅ Creating dynamic driver route config for ${path}`);
+      console.log(`   Will proxy to: ${driverService.url}${path}`);
       // Create a dynamic route config for unmatched driver routes
       route = {
         path: path,
         service: 'driver',
         methods: [method as any],
-        authRequired: true // Default to requiring auth for driver routes
+        authRequired: false // Changed to false for subscription/activate endpoint
       };
+    } else {
+      console.error(`❌ Driver service not configured!`);
     }
   }
 
