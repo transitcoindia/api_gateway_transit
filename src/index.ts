@@ -138,7 +138,13 @@ httpServer.listen(PORT, () => {
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔌 WebSocket health: http://localhost:${PORT}/websocket-health`);
   console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log('\n🔗 Backend Service URLs:');
+  console.log('\n🔧 Environment Variables Check:');
+  console.log(`   DRIVER_SERVICE_URL: ${process.env.DRIVER_SERVICE_URL || 'NOT SET'}`);
+  console.log(`   driver_backend: ${process.env.driver_backend || 'NOT SET'}`);
+  console.log(`   RIDER_BACKEND_URL: ${process.env.RIDER_BACKEND_URL || 'NOT SET'}`);
+  console.log(`   rider_backend: ${process.env.rider_backend || 'NOT SET'}`);
+  console.log(`   REDIS_URL: ${process.env.REDIS_URL ? '✅ SET' : 'NOT SET'}`);
+  console.log('\n🔗 Resolved Backend Service URLs:');
   console.log(`   Driver Backend: ${DRIVER_BACKEND_URL}`);
   console.log(`   Rider Backend:  ${RIDER_BACKEND_URL}`);
   console.log('\n📋 Available routes:');
@@ -146,13 +152,18 @@ httpServer.listen(PORT, () => {
   console.log('GET  /websocket-health');
   console.log('GET  /api/gateway/rides/health');
   console.log('POST /api/gateway/rides/request');
+  console.log('POST /api/driver/subscription/activate (proxies to driver backend)');
   
   // Warn if using localhost URLs in production
   if (process.env.NODE_ENV === 'production') {
     if (DRIVER_BACKEND_URL.includes('localhost') || RIDER_BACKEND_URL.includes('localhost')) {
       console.warn('\n⚠️  WARNING: Using localhost URLs in production!');
-      console.warn('   Please set DRIVER_SERVICE_URL and TRANSIT_SERVICE_URL environment variables');
-      console.warn('   in your Render dashboard to point to production backend services.');
+      console.warn('   Current values:');
+      console.warn(`   DRIVER_BACKEND_URL: ${DRIVER_BACKEND_URL}`);
+      console.warn(`   RIDER_BACKEND_URL: ${RIDER_BACKEND_URL}`);
+      console.warn('\n   Please set these environment variables in Render:');
+      console.warn('   - DRIVER_SERVICE_URL (e.g., https://your-driver-backend.onrender.com)');
+      console.warn('   - rider_backend (e.g., https://your-rider-backend.onrender.com)');
     }
   }
 });

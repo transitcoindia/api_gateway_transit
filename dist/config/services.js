@@ -1,14 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.routes = exports.services = void 0;
+const env_1 = require("./env");
 exports.services = {
     transit: {
-        url: process.env.TRANSIT_SERVICE_URL || 'http://localhost:8000',
+        url: env_1.RIDER_BACKEND_URL,
         routes: ['/api/auth', '/api/cab', '/api/user', '/api/driver'],
         authRequired: true
     },
     driver: {
-        url: process.env.DRIVER_SERVICE_URL || 'http://localhost:3000',
+        url: env_1.DRIVER_BACKEND_URL,
         routes: ['/api/driver'],
         authRequired: true
     }
@@ -103,6 +104,78 @@ exports.routes = [
         path: '/api/driver/profile',
         service: 'driver',
         methods: ['GET'],
+        authRequired: true
+    },
+    {
+        path: '/api/driver/profile/completion',
+        service: 'driver',
+        methods: ['GET'],
+        authRequired: true
+    },
+    {
+        path: '/api/driver/profile/image',
+        service: 'driver',
+        methods: ['POST'],
+        authRequired: true
+    },
+    {
+        path: '/api/driver/subscription/activate',
+        service: 'driver',
+        methods: ['POST'],
+        authRequired: true
+    },
+    {
+        path: '/api/driver/rides_accepted',
+        service: 'driver',
+        methods: ['POST'],
+        authRequired: true
+    },
+    {
+        path: '/api/driver/start_ride',
+        service: 'driver',
+        methods: ['POST'],
+        authRequired: true
+    },
+    {
+        path: '/api/driver/end_ride',
+        service: 'driver',
+        methods: ['POST'],
+        authRequired: true
+    },
+    {
+        path: '/api/driver/verify-registration-otp',
+        service: 'driver',
+        methods: ['POST'],
+        authRequired: false
+    },
+    {
+        path: '/api/driver/verify-email',
+        service: 'driver',
+        methods: ['GET'],
+        authRequired: false
+    },
+    {
+        path: '/api/driver/auth/google',
+        service: 'driver',
+        methods: ['POST'],
+        authRequired: false
+    },
+    {
+        path: '/api/driver/password-reset/request-otp',
+        service: 'driver',
+        methods: ['POST'],
+        authRequired: false
+    },
+    {
+        path: '/api/driver/password-reset/verify-otp',
+        service: 'driver',
+        methods: ['POST'],
+        authRequired: false
+    },
+    {
+        path: '/api/driver/documents/vehicleInfo',
+        service: 'driver',
+        methods: ['POST'],
         authRequired: true
     }
 ];

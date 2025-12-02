@@ -18,16 +18,26 @@ const val = (keys, fallback) => {
 };
 exports.NODE_ENV = process.env.NODE_ENV || 'development';
 exports.PORT = Number(process.env.PORT || 3005);
+// Check for DRIVER_SERVICE_URL first (Render env var), then fallbacks
 exports.DRIVER_BACKEND_URL = val([
+    'DRIVER_SERVICE_URL',
     'driver_backend',
-    'DRIVER_BACKEND_URL',
-    'DRIVER_SERVICE_URL'
+    'DRIVER_BACKEND_URL'
 ], 'http://localhost:3000');
+// Check for rider_backend first (Render env var), then RIDER_BACKEND_URL, then fallbacks
 exports.RIDER_BACKEND_URL = val([
     'rider_backend',
     'RIDER_BACKEND_URL',
     'TRANSIT_SERVICE_URL'
 ], 'http://localhost:8000');
+// Log resolved URLs for debugging
+console.log('🔧 Environment Variable Resolution:');
+console.log(`   DRIVER_SERVICE_URL env: ${process.env.DRIVER_SERVICE_URL || 'NOT SET'}`);
+console.log(`   driver_backend env: ${process.env.driver_backend || 'NOT SET'}`);
+console.log(`   rider_backend env: ${process.env.rider_backend || 'NOT SET'}`);
+console.log(`   RIDER_BACKEND_URL env: ${process.env.RIDER_BACKEND_URL || 'NOT SET'}`);
+console.log(`   Resolved DRIVER_BACKEND_URL: ${exports.DRIVER_BACKEND_URL}`);
+console.log(`   Resolved RIDER_BACKEND_URL: ${exports.RIDER_BACKEND_URL}`);
 exports.API_GATEWAY_PUBLIC_ORIGIN = val([
     'API_GATEWAY_PUBLIC_ORIGIN'
 ]);
