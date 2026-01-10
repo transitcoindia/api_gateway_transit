@@ -177,5 +177,54 @@ exports.routes = [
         service: 'driver',
         methods: ['POST'],
         authRequired: true
+    },
+    // Admin Driver Management Routes
+    {
+        path: '/api/driver/admin/list',
+        service: 'driver',
+        methods: ['GET'],
+        authRequired: true
+    },
+    {
+        path: '/api/driver/admin/approve/:driverId',
+        service: 'driver',
+        methods: ['PUT', 'GET'],
+        authRequired: true
+    },
+    {
+        path: '/api/driver/admin/approve',
+        service: 'driver',
+        methods: ['GET'],
+        authRequired: false // Token-based, no auth header needed
+    },
+    {
+        path: '/api/driver/admin/reject/:driverId',
+        service: 'driver',
+        methods: ['PUT'],
+        authRequired: true
+    },
+    {
+        path: '/api/driver/admin/reject',
+        service: 'driver',
+        methods: ['GET', 'POST'],
+        authRequired: false // Token-based
+    },
+    {
+        path: '/api/driver/admin/suspend/:driverId',
+        service: 'driver',
+        methods: ['PUT'],
+        authRequired: true
+    },
+    {
+        path: '/api/driver/admin/suspend',
+        service: 'driver',
+        methods: ['GET', 'POST'],
+        authRequired: false // Token-based
+    },
+    {
+        path: '/api/driver/admin/:driverId/approval',
+        service: 'driver',
+        methods: ['PATCH'],
+        authRequired: true
     }
 ];

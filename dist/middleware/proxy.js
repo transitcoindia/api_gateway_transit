@@ -46,6 +46,17 @@ const routeMatcher = (req, res, next) => {
     }
     // First try exact match
     let route = services_1.routes.find((r) => r.path === path && r.methods.includes(method));
+    // If no exact match, try parameterized route matching (e.g., /api/driver/admin/approve/:driverId)
+    if (!route) {
+        route = services_1.routes.find((r) => {
+            if (!r.methods.includes(method))
+                return false;
+            // Convert route path pattern to regex (e.g., /api/driver/admin/approve/:driverId -> /api/driver/admin/approve/[^/]+)
+            const pattern = r.path.replace(/:[^/]+/g, '[^/]+');
+            const regex = new RegExp(`^${pattern}$`);
+            return regex.test(path);
+        });
+    }
     // If no exact match, try wildcard matching for driver routes
     if (!route && path.startsWith('/api/driver/')) {
         console.log(`📍 No exact match, checking driver wildcard for: ${path}`);
@@ -53,13 +64,21 @@ const routeMatcher = (req, res, next) => {
         const driverService = services_1.services['driver'];
         if (driverService) {
             console.log(`✅ Creating dynamic driver route config for ${path}`);
+            console.log(`   Will proxy to: ${driverService.url}${path}`);
+            // Admin routes require authentication
+            const isAdminRoute = path.startsWith('/api/driver/admin/');
+            // Public routes (register, login, etc.) don't require auth
+            const isPublicRoute = path.match(/^\/(api\/driver\/(register|login|auth\/google|verify-email|password-reset|verify-registration-otp))/);
             // Create a dynamic route config for unmatched driver routes
             route = {
                 path: path,
                 service: 'driver',
                 methods: [method],
-                authRequired: true // Default to requiring auth for driver routes
+                authRequired: isAdminRoute || (!isPublicRoute && path !== '/api/driver/subscription/activate')
             };
+        }
+        else {
+            console.error(`❌ Driver service not configured!`);
         }
     }
     // If still no route, try wildcard matching for transit routes
