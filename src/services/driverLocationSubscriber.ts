@@ -108,7 +108,7 @@ function createSubscription(io: SocketIOServer, rideToRiderMap: Map<string, stri
   });
 
   // Handle messages
-  subscriptionClient.on('message', async (channel, message) => {
+  subscriptionClient.on('message', async (channel: string, message: string) => {
     if (channel === CHANNELS.DRIVER_LOCATION_UPDATES) {
       try {
         const data = JSON.parse(message);
@@ -141,12 +141,12 @@ function createSubscription(io: SocketIOServer, rideToRiderMap: Map<string, stri
   });
 
   // Handle subscription events
-  subscriptionClient.on('subscribe', (channel) => {
+  subscriptionClient.on('subscribe', (channel: string) => {
     console.log('✅ Subscribed to Redis channel:', channel);
     isSubscribed = true;
   });
 
-  subscriptionClient.on('psubscribe', (pattern) => {
+  subscriptionClient.on('psubscribe', (pattern: string) => {
     console.log('✅ Subscribed to Redis pattern:', pattern);
   });
 

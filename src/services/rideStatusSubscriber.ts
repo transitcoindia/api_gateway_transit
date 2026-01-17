@@ -108,7 +108,7 @@ function createSubscription(io: SocketIOServer) {
   });
 
   // Handle messages
-  subscriptionClient.on('message', async (channel, message) => {
+  subscriptionClient.on('message', async (channel: string, message: string) => {
     if (channel === CHANNEL) {
       try {
         const data = JSON.parse(message);
@@ -125,12 +125,12 @@ function createSubscription(io: SocketIOServer) {
   });
 
   // Handle subscription events
-  subscriptionClient.on('subscribe', (channel) => {
+  subscriptionClient.on('subscribe', (channel: string) => {
     console.log('✅ Subscribed to Redis channel (status):', channel);
     isSubscribed = true;
   });
 
-  subscriptionClient.on('psubscribe', (pattern) => {
+  subscriptionClient.on('psubscribe', (pattern: string) => {
     console.log('✅ Subscribed to Redis pattern:', pattern);
   });
 
