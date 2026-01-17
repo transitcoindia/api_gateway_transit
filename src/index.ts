@@ -233,17 +233,17 @@ async function testBackendConnectivity(serviceName: string, baseUrl: string) {
 app.get('/debug/routes', (req, res) => {
   const { routes, services } = require('./config/services');
   res.json({
-    routes: routes.map(r => ({
+    routes: routes.map((r: RouteConfig) => ({
       path: r.path,
       service: r.service,
       methods: r.methods,
       authRequired: r.authRequired
     })),
-    services: Object.keys(services).map(key => ({
+    services: Object.keys(services).map((key: string) => ({
       name: key,
       url: services[key].url
     })),
-    riderRoutes: routes.filter(r => r.path.includes('/rider'))
+    riderRoutes: routes.filter((r: RouteConfig) => r.path.includes('/rider'))
   });
 });
 
