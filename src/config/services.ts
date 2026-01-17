@@ -41,6 +41,32 @@ export const routes: RouteConfig[] = [
     authRequired: false
   },
 
+  // Rider Routes
+  {
+    path: '/api/rider/request',
+    service: 'transit',
+    methods: ['POST'],
+    authRequired: true
+  },
+  {
+    path: '/api/rider/history',
+    service: 'transit',
+    methods: ['GET'],
+    authRequired: true
+  },
+  {
+    path: '/api/rider/fare/estimate',
+    service: 'transit',
+    methods: ['POST'],
+    authRequired: true
+  },
+  {
+    path: '/api/rider/:rideId',
+    service: 'transit',
+    methods: ['GET', 'POST', 'PATCH'],
+    authRequired: true
+  },
+
   // Cab Routes
   {
     path: '/api/cab/getQuote',
