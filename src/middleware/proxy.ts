@@ -94,7 +94,7 @@ export const routeMatcher = (req: Request, res: Response, next: NextFunction) =>
   }
 
   // If still no route, try wildcard matching for transit routes
-  if (!route && (path.startsWith('/api/auth/') || path.startsWith('/api/cab/') || path.startsWith('/api/user/'))) {
+  if (!route && (path.startsWith('/api/auth/') || path.startsWith('/api/cab/') || path.startsWith('/api/user/') || path.startsWith('/api/rider/'))) {
     console.log(`📍 Checking transit wildcard for: ${path}`);
     const transitService = services['transit'];
     if (transitService) {

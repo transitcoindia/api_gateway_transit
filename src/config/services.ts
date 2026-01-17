@@ -4,7 +4,7 @@ import { DRIVER_BACKEND_URL, RIDER_BACKEND_URL } from './env';
 export const services: Record<string, ServiceConfig> = {
   transit: {
     url: RIDER_BACKEND_URL,
-    routes: ['/api/auth', '/api/cab', '/api/user', '/api/driver'],
+    routes: ['/api/auth', '/api/cab', '/api/user', '/api/rider', '/api/driver'],
     authRequired: true
   },
   driver: {
