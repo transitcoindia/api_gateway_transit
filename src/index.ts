@@ -254,7 +254,13 @@ app.use((req, res, next) => {
   const routeConfig = getRouteConfig(req);
 
   if (!routeConfig) {
-    return next();
+    console.log(`⚠️ No route config found for ${req.method} ${req.path} - returning 404`);
+    return res.status(404).json({
+      status: 'error',
+      message: 'Route not found',
+      path: req.path,
+      method: req.method
+    });
   }
 
   const proxy = createServiceProxy(routeConfig);

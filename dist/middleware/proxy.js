@@ -44,14 +44,18 @@ const routeMatcher = (req, res, next) => {
         console.log(`✅ Matched gateway rides route`);
         return next();
     }
-    // First try exact match
+    // First try exact match (MUST come first to avoid parameterized routes matching before exact routes)
     let route = services_1.routes.find((r) => r.path === path && r.methods.includes(method));
     // If no exact match, try parameterized route matching (e.g., /api/driver/admin/approve/:driverId)
+    // Only match parameterized routes if no exact route was found
     if (!route) {
         route = services_1.routes.find((r) => {
             if (!r.methods.includes(method))
                 return false;
-            // Convert route path pattern to regex (e.g., /api/driver/admin/approve/:driverId -> /api/driver/admin/approve/[^/]+)
+            // Only match parameterized routes (those with ':')
+            if (!r.path.includes(':'))
+                return false;
+            // Convert route path pattern to regex (e.g., /api/rider/:rideId -> /api/rider/[^/]+)
             const pattern = r.path.replace(/:[^/]+/g, '[^/]+');
             const regex = new RegExp(`^${pattern}$`);
             return regex.test(path);
