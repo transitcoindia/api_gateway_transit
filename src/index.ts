@@ -229,6 +229,24 @@ async function testBackendConnectivity(serviceName: string, baseUrl: string) {
   return result;
 }
 
+// Debug endpoint to check route configuration
+app.get('/debug/routes', (req, res) => {
+  const { routes, services } = require('./config/services');
+  res.json({
+    routes: routes.map(r => ({
+      path: r.path,
+      service: r.service,
+      methods: r.methods,
+      authRequired: r.authRequired
+    })),
+    services: Object.keys(services).map(key => ({
+      name: key,
+      url: services[key].url
+    })),
+    riderRoutes: routes.filter(r => r.path.includes('/rider'))
+  });
+});
+
 // Proxy + middleware pipeline for API routes
 app.use(routeMatcher);
 

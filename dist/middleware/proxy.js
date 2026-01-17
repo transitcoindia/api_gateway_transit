@@ -39,6 +39,8 @@ const routeMatcher = (req, res, next) => {
     const path = req.path;
     const method = req.method;
     console.log(`🔍 Route matching: ${method} ${path}`);
+    console.log(`   Available routes count: ${services_1.routes.length}`);
+    console.log(`   Checking exact match for: ${path} with method ${method}`);
     // Allow rides routes to pass through without checking routes array
     if (path.startsWith('/api/gateway/rides')) {
         console.log(`✅ Matched gateway rides route`);
@@ -46,6 +48,12 @@ const routeMatcher = (req, res, next) => {
     }
     // First try exact match (MUST come first to avoid parameterized routes matching before exact routes)
     let route = services_1.routes.find((r) => r.path === path && r.methods.includes(method));
+    if (route) {
+        console.log(`✅ Found exact match: ${route.path} → ${route.service}`);
+    }
+    else {
+        console.log(`   No exact match found. Checking parameterized routes...`);
+    }
     // If no exact match, try parameterized route matching (e.g., /api/driver/admin/approve/:driverId)
     // Only match parameterized routes if no exact route was found
     if (!route) {
@@ -91,12 +99,16 @@ const routeMatcher = (req, res, next) => {
         const transitService = services_1.services['transit'];
         if (transitService) {
             console.log(`✅ Creating dynamic transit route config for ${path}`);
+            console.log(`   Transit service URL: ${transitService.url}`);
             route = {
                 path: path,
                 service: 'transit',
                 methods: [method],
                 authRequired: true
             };
+        }
+        else {
+            console.log(`❌ Transit service not configured!`);
         }
     }
     if (!route) {
