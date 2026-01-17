@@ -6,6 +6,12 @@ let subscriptionClient: ReturnType<typeof redis.duplicate> | null = null;
 let isSubscribed = false;
 
 function createSubscription(io: SocketIOServer, rideToRiderMap: Map<string, string>) {
+  // Check if Redis is available
+  if (!redis.client || !redis.isConnected()) {
+    console.warn('⚠️ Redis not available - driver location subscription disabled');
+    return;
+  }
+
   // Close existing subscription if any
   if (subscriptionClient) {
     try {
@@ -17,18 +23,33 @@ function createSubscription(io: SocketIOServer, rideToRiderMap: Map<string, stri
   }
 
   // Create new subscription client with same config as main client
-  subscriptionClient = redis.duplicate({
+  const dupClient = redis.duplicate({
     retryStrategy: (times: number) => {
+      if (times > 50) {
+        // Stop retrying after 50 attempts
+        console.warn('⚠️ Redis driver location subscription failed after 50 attempts. Disabling subscription.');
+        return null;
+      }
       const delay = Math.min(times * 50, 2000);
-      console.log(`🔄 Redis driver location subscription reconnecting (attempt ${times}) in ${delay}ms...`);
+      // Only log every 10th attempt to reduce spam
+      if (times % 10 === 0) {
+        console.log(`🔄 Redis driver location subscription reconnecting (attempt ${times}) in ${delay}ms...`);
+      }
       return delay;
     },
     maxRetriesPerRequest: 3,
     enableReadyCheck: true,
-    enableOfflineQueue: true,
+    enableOfflineQueue: false,
     connectTimeout: 10000,
     keepAlive: 30000,
   });
+
+  if (!dupClient) {
+    console.warn('⚠️ Cannot create Redis duplicate client - driver location subscription disabled');
+    return;
+  }
+
+  subscriptionClient = dupClient;
 
   // Handle connection events
   subscriptionClient.on('connect', () => {
@@ -44,27 +65,40 @@ function createSubscription(io: SocketIOServer, rideToRiderMap: Map<string, stri
   });
 
   subscriptionClient.on('error', (error: Error) => {
+    // Suppress DNS errors after initial notification
+    if (error.message.includes('ENOTFOUND')) {
+      console.warn('❌ Redis driver location subscription: Hostname not found. Subscription disabled.');
+      isSubscribed = false;
+      subscriptionClient = null;
+      return;
+    }
     // Handle specific error types gracefully
     if (error.message.includes('ECONNRESET')) {
-      console.log('⚠️ Redis driver location subscription connection reset - will reconnect automatically');
+      // Suppress repeated reset messages
+      if (Math.random() < 0.1) {
+        console.log('⚠️ Redis driver location subscription connection reset');
+      }
       isSubscribed = false;
     } else if (error.message.includes('ECONNREFUSED')) {
       console.error('❌ Redis driver location subscription connection refused');
-    } else if (error.message.includes('ETIMEDOUT')) {
-      console.log('⚠️ Redis driver location subscription connection timeout - will retry');
       isSubscribed = false;
-    } else {
-      console.error('❌ Redis driver location subscription error:', error.message);
+      subscriptionClient = null;
+    } else if (error.message.includes('ETIMEDOUT')) {
+      // Suppress repeated timeout messages
+      if (Math.random() < 0.1) {
+        console.log('⚠️ Redis driver location subscription connection timeout');
+      }
+      isSubscribed = false;
     }
   });
 
   subscriptionClient.on('close', () => {
-    console.log('⚠️ Redis driver location subscription connection closed');
+    // Suppress close messages - expected if Redis is unavailable
     isSubscribed = false;
   });
 
   subscriptionClient.on('reconnecting', (delay: number) => {
-    console.log(`🔄 Redis driver location subscription reconnecting in ${delay}ms...`);
+    // Suppress reconnecting messages - handled in retryStrategy
     isSubscribed = false;
   });
 
@@ -81,8 +115,12 @@ function createSubscription(io: SocketIOServer, rideToRiderMap: Map<string, stri
         const { rideId } = data || {};
 
         // Cache last location by ride for GET fallback
-        if (rideId) {
-          await redis.set(`ride:lastLocation:${rideId}`, message, 'EX', RIDE_LAST_LOCATION_TTL_SECONDS);
+        if (rideId && redis.client) {
+          try {
+            await redis.set(`ride:lastLocation:${rideId}`, message, 'EX', RIDE_LAST_LOCATION_TTL_SECONDS);
+          } catch (e) {
+            // Ignore Redis set errors
+          }
         }
 
         // Targeted emit to the rider owning this ride

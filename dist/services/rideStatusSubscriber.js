@@ -9,6 +9,11 @@ const CHANNEL = 'ride_status_updates';
 let subscriptionClient = null;
 let isSubscribed = false;
 function createSubscription(io) {
+    // Check if Redis is available
+    if (!redis_1.default.client || !redis_1.default.isConnected()) {
+        console.warn('⚠️ Redis not available - ride status subscription disabled');
+        return;
+    }
     // Close existing subscription if any
     if (subscriptionClient) {
         try {
@@ -20,18 +25,31 @@ function createSubscription(io) {
         }
     }
     // Create new subscription client with same config as main client
-    subscriptionClient = redis_1.default.duplicate({
+    const dupClient = redis_1.default.duplicate({
         retryStrategy: (times) => {
+            if (times > 50) {
+                // Stop retrying after 50 attempts
+                console.warn('⚠️ Redis ride status subscription failed after 50 attempts. Disabling subscription.');
+                return null;
+            }
             const delay = Math.min(times * 50, 2000);
-            console.log(`🔄 Redis subscription reconnecting (attempt ${times}) in ${delay}ms...`);
+            // Only log every 10th attempt to reduce spam
+            if (times % 10 === 0) {
+                console.log(`🔄 Redis subscription reconnecting (attempt ${times}) in ${delay}ms...`);
+            }
             return delay;
         },
         maxRetriesPerRequest: 3,
         enableReadyCheck: true,
-        enableOfflineQueue: true,
+        enableOfflineQueue: false,
         connectTimeout: 10000,
         keepAlive: 30000,
     });
+    if (!dupClient) {
+        console.warn('⚠️ Cannot create Redis duplicate client - ride status subscription disabled');
+        return;
+    }
+    subscriptionClient = dupClient;
     // Handle connection events
     subscriptionClient.on('connect', () => {
         console.log('✅ Redis subscription client connected');
@@ -44,28 +62,40 @@ function createSubscription(io) {
         }
     });
     subscriptionClient.on('error', (error) => {
+        // Suppress DNS errors after initial notification
+        if (error.message.includes('ENOTFOUND')) {
+            console.warn('❌ Redis ride status subscription: Hostname not found. Subscription disabled.');
+            isSubscribed = false;
+            subscriptionClient = null;
+            return;
+        }
         // Handle specific error types gracefully
         if (error.message.includes('ECONNRESET')) {
-            console.log('⚠️ Redis subscription connection reset - will reconnect automatically');
+            // Suppress repeated reset messages
+            if (Math.random() < 0.1) {
+                console.log('⚠️ Redis subscription connection reset');
+            }
             isSubscribed = false;
         }
         else if (error.message.includes('ECONNREFUSED')) {
             console.error('❌ Redis subscription connection refused');
+            isSubscribed = false;
+            subscriptionClient = null;
         }
         else if (error.message.includes('ETIMEDOUT')) {
-            console.log('⚠️ Redis subscription connection timeout - will retry');
+            // Suppress repeated timeout messages
+            if (Math.random() < 0.1) {
+                console.log('⚠️ Redis subscription connection timeout');
+            }
             isSubscribed = false;
-        }
-        else {
-            console.error('❌ Redis subscription error:', error.message);
         }
     });
     subscriptionClient.on('close', () => {
-        console.log('⚠️ Redis subscription connection closed');
+        // Suppress close messages - expected if Redis is unavailable
         isSubscribed = false;
     });
     subscriptionClient.on('reconnecting', (delay) => {
-        console.log(`🔄 Redis subscription reconnecting in ${delay}ms...`);
+        // Suppress reconnecting messages - handled in retryStrategy
         isSubscribed = false;
     });
     subscriptionClient.on('end', () => {

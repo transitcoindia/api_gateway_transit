@@ -87,6 +87,9 @@ const createRidesRouter = (wsService) => {
     ridesRouter.get('/last-location/ride/:rideId', async (req, res) => {
         try {
             const { rideId } = req.params;
+            if (!redis_1.default.client) {
+                return res.status(503).json({ error: 'Redis service unavailable' });
+            }
             const raw = await redis_1.default.get(`ride:lastLocation:${rideId}`);
             if (!raw) {
                 return res.status(404).json({ error: 'No location found for this ride' });
@@ -101,6 +104,9 @@ const createRidesRouter = (wsService) => {
     ridesRouter.get('/last-location/driver/:driverId', async (req, res) => {
         try {
             const { driverId } = req.params;
+            if (!redis_1.default.client) {
+                return res.status(503).json({ error: 'Redis service unavailable' });
+            }
             const raw = await redis_1.default.get(`driver:location:${driverId}`);
             if (!raw) {
                 return res.status(404).json({ error: 'No location found for this driver' });
@@ -117,6 +123,9 @@ const createRidesRouter = (wsService) => {
             const { driverId, rideId, ttlSeconds = 7200 } = req.body || {};
             if (!driverId || !rideId) {
                 return res.status(400).json({ error: 'driverId and rideId are required' });
+            }
+            if (!redis_1.default.client) {
+                return res.status(503).json({ error: 'Redis service unavailable' });
             }
             await redis_1.default.set(`driver:active_ride:${driverId}`, rideId, 'EX', Number(ttlSeconds));
             return res.json({ success: true });

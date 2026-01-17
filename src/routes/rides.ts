@@ -84,6 +84,9 @@ ridesRouter.post('/accept', async (req, res) => {
 ridesRouter.get('/last-location/ride/:rideId', async (req, res) => {
   try {
     const { rideId } = req.params as { rideId: string };
+    if (!redis.client) {
+      return res.status(503).json({ error: 'Redis service unavailable' });
+    }
     const raw = await redis.get(`ride:lastLocation:${rideId}`);
     if (!raw) {
       return res.status(404).json({ error: 'No location found for this ride' });
@@ -98,6 +101,9 @@ ridesRouter.get('/last-location/ride/:rideId', async (req, res) => {
 ridesRouter.get('/last-location/driver/:driverId', async (req, res) => {
   try {
     const { driverId } = req.params as { driverId: string };
+    if (!redis.client) {
+      return res.status(503).json({ error: 'Redis service unavailable' });
+    }
     const raw = await redis.get(`driver:location:${driverId}`);
     if (!raw) {
       return res.status(404).json({ error: 'No location found for this driver' });
@@ -114,6 +120,9 @@ ridesRouter.post('/testing/map-active-ride', async (req, res) => {
     const { driverId, rideId, ttlSeconds = 7200 } = req.body || {};
     if (!driverId || !rideId) {
       return res.status(400).json({ error: 'driverId and rideId are required' });
+    }
+    if (!redis.client) {
+      return res.status(503).json({ error: 'Redis service unavailable' });
     }
     await redis.set(`driver:active_ride:${driverId}`, rideId, 'EX', Number(ttlSeconds));
     return res.json({ success: true });

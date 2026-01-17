@@ -5,7 +5,7 @@ const env_1 = require("./env");
 exports.services = {
     transit: {
         url: env_1.RIDER_BACKEND_URL,
-        routes: ['/api/auth', '/api/cab', '/api/user', '/api/driver'],
+        routes: ['/api/auth', '/api/cab', '/api/user', '/api/rider', '/api/driver'],
         authRequired: true
     },
     driver: {

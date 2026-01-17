@@ -243,10 +243,12 @@ export class WebSocketService {
         }
 
         // Persist driver -> active ride mapping so location publisher can attach rideId
-        try {
-          await redis.set(`driver:active_ride:${driverId}`, rideId, 'EX', 7200);
-        } catch (e) {
-          console.error('Failed to set driver active ride mapping:', e);
+        if (redis.client) {
+          try {
+            await redis.set(`driver:active_ride:${driverId}`, rideId, 'EX', 7200);
+          } catch (e) {
+            // Ignore Redis errors - service continues without Redis
+          }
         }
 
         const ridePayload = {
@@ -507,10 +509,12 @@ export class WebSocketService {
     }
 
     // Persist driver -> active ride mapping so location publisher can attach rideId
-    try {
-      await redis.set(`driver:active_ride:${driverId}`, rideId, 'EX', 7200);
-    } catch (e) {
-      console.error('Failed to set driver active ride mapping (REST accept):', e);
+    if (redis.client) {
+      try {
+        await redis.set(`driver:active_ride:${driverId}`, rideId, 'EX', 7200);
+      } catch (e) {
+        // Ignore Redis errors - service continues without Redis
+      }
     }
 
     // Prepare ride payload for backends
