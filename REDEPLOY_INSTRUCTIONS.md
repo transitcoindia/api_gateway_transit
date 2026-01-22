@@ -11,7 +11,7 @@ The API Gateway on Render is configured for **auto-deployment** from GitHub. Whe
 
 **Status:** Changes have been pushed to GitHub. Render should be deploying automatically.
 
-**Deployment URL:** https://api-gateway-transit-iywb.onrender.com
+**Deployment URL:** https://gateway.transitco.in
 
 ---
 
@@ -51,12 +51,12 @@ After deployment, verify the changes are live:
 
 ### 1. Check Health Endpoint
 ```bash
-curl https://api-gateway-transit-iywb.onrender.com/health
+curl https://gateway.transitco.in/health
 ```
 
 ### 2. Test Ride Request Endpoint
 ```bash
-curl -X POST https://api-gateway-transit-iywb.onrender.com/api/rider/request \
+curl -X POST https://gateway.transitco.in/api/rider/request \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{

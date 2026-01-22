@@ -7,7 +7,7 @@
 
 const { io } = require('socket.io-client');
 
-const API_GATEWAY_URL = process.env.API_GATEWAY_URL || 'https://api-gateway-transit.onrender.com';
+const API_GATEWAY_URL = process.env.API_GATEWAY_URL || 'https://gateway.transitco.in';
 
 console.log('🧪 Testing WebSocket 429 fix (Rate Limiting Disabled)...');
 console.log(`📍 API Gateway URL: ${API_GATEWAY_URL}`);

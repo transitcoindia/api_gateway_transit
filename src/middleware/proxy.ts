@@ -15,19 +15,50 @@ export const createServiceProxy = (route: RouteConfig) => {
   return createProxyMiddleware({
     target: service.url,
     changeOrigin: true,
+    timeout: 30000, // 30 second timeout
+    proxyTimeout: 30000, // 30 second proxy timeout
     pathRewrite: {
       [`^${route.path}`]: route.path
     },
     onProxyReq: (proxyReq, req, res) => {
       console.log(`📤 Proxying request: ${req.method} ${req.path} → ${service.url}${req.path}`);
     },
-    onError: (err, req, res) => {
+    onError: (err: any, req, res) => {
       console.error(`❌ Proxy error for ${route.path} → ${service.url}:`, err.message);
       console.error(`   Target URL: ${service.url}${req.url}`);
+      console.error(`   Error code: ${err.code || 'UNKNOWN'}`);
+      
+      // Handle specific error types
+      if (err.code === 'ECONNRESET' || err.message.includes('ECONNRESET')) {
+        return res.status(503).json({
+          status: 'error',
+          message: 'Backend service connection reset. The backend may be unreachable or experiencing issues.',
+          error: 'ECONNRESET'
+        });
+      }
+      
+      if (err.code === 'ETIMEDOUT' || err.message.includes('ETIMEDOUT')) {
+        return res.status(504).json({
+          status: 'error',
+          message: 'Backend service timeout. The request took too long to process.',
+          error: 'ETIMEDOUT'
+        });
+      }
+      
+      if (err.code === 'ECONNREFUSED' || err.message.includes('ECONNREFUSED')) {
+        return res.status(503).json({
+          status: 'error',
+          message: 'Backend service connection refused. The backend may be down or not accepting connections.',
+          error: 'ECONNREFUSED'
+        });
+      }
+      
+      // Generic error response
       res.status(500).json({
         status: 'error',
         message: 'Service unavailable',
-        details: process.env.NODE_ENV === 'production' ? undefined : err.message
+        details: process.env.NODE_ENV === 'production' ? undefined : err.message,
+        error: err.code || 'UNKNOWN'
       });
     },
     onProxyRes: (proxyRes, req, res) => {

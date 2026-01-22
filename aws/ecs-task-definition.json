@@ -1,0 +1,65 @@
+{
+  "family": "api-gateway-transit",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::910162731533:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::910162731533:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "api-gateway-transit",
+      "image": "910162731533.dkr.ecr.ap-south-1.amazonaws.com/api-gateway-transit:latest",
+      "portMappings": [
+        {
+          "containerPort": 3005,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "NODE_ENV",
+          "value": "production"
+        },
+        {
+          "name": "PORT",
+          "value": "3005"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:910162731533:secret:JWT_SECRET-7zEVgf"
+        },
+        {
+          "name": "DRIVER_SERVICE_URL",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:910162731533:secret:DRIVER_SERVICE_URL"
+        },
+        {
+          "name": "RIDER_BACKEND_URL",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:910162731533:secret:RIDER_BACKEND_URL"
+        },
+        {
+          "name": "REDIS_URL",
+          "valueFrom": "arn:aws:secretsmanager:ap-south-1:910162731533:secret:REDIS_URL-LKE2gd"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/api-gateway-transit",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3005/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})\""],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}

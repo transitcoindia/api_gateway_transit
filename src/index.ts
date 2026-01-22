@@ -59,7 +59,7 @@ app.get('/', (req, res) => {
     message: "API Gateway is running",
     websocket: "enabled",
     timestamp: new Date().toISOString(),
-    deployedAt: "https://api-gateway-transit-iywb.onrender.com"
+    deployedAt: "https://gateway.transitco.in"
   });
 });
 
@@ -102,7 +102,7 @@ app.get('/health', (req, res) => {
       rider_backend: process.env.rider_backend || 'NOT SET'
     },
     websocket_connections: wsService.getIO().engine.clientsCount || 0,
-    deployed_url: 'https://api-gateway-transit-iywb.onrender.com'
+    deployed_url: 'https://gateway.transitco.in'
   });
 });
 

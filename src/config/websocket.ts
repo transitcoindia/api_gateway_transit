@@ -34,7 +34,7 @@ export const getWebSocketConfig = (): Partial<ServerOptions> => {
         }
         
         // Allow API Gateway public origin
-        const publicOrigin = process.env.API_GATEWAY_PUBLIC_ORIGIN || 'https://api-gateway-transit.onrender.com';
+        const publicOrigin = process.env.API_GATEWAY_PUBLIC_ORIGIN || 'https://gateway.transitco.in';
         if (originClean === publicOrigin.replace(/\/$/, '')) {
           return callback(null, true);
         }
