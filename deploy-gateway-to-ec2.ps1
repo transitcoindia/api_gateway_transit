@@ -95,7 +95,6 @@ $deployCommands += @(
     "echo '[INFO] Building TypeScript...'",
     "npm run build",
     "echo '[INFO] Restarting service...'",
-    "export `$(grep -v '^#' .env.api-gateway | xargs) || true",
     "pm2 restart api-gateway-transit --update-env",
     "pm2 save",
     "echo ''",
