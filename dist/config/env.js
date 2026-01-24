@@ -57,7 +57,7 @@ function getAllowedOrigins() {
         'https://www.shankhtech.com',
         'https://pramaan.ondc.org',
         'https://api-gateway-transit.vercel.app',
-        'https://api-gateway-transit.onrender.com'
+        'https://gateway.transitco.in'
     ];
     const extraCsv = process.env.CORS_ALLOWED_ORIGINS || '';
     const extras = extraCsv.split(',').map(s => s.trim()).filter(Boolean);

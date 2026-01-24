@@ -14,8 +14,9 @@ export const getWebSocketConfig = (): Partial<ServerOptions> => {
     // CORS configuration - allow driver and rider backends, plus public origin
     cors: {
       origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps, server-to-server)
+        // Allow requests with no origin (like mobile apps, server-to-server, browser console)
         if (!origin) {
+          // console.log('Allowing null origin (browser console/mobile app)');
           return callback(null, true);
         }
         
