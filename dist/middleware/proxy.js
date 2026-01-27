@@ -5,26 +5,82 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.routeMatcher = exports.createServiceProxy = void 0;
 const http_proxy_middleware_1 = require("http-proxy-middleware");
+const axios_1 = __importDefault(require("axios"));
 const https_1 = __importDefault(require("https"));
 const services_1 = require("../config/services");
-// Use a dedicated HTTPS agent for driver service to avoid keep-alive / socket reuse
-// issues that can cause intermittent ECONNRESET with some CDNs/proxies.
-const driverHttpsAgent = new https_1.default.Agent({
-    keepAlive: false,
-});
 const createServiceProxy = (route) => {
     const service = services_1.services[route.service];
     if (!service) {
         throw new Error(`Service ${route.service} not found`);
     }
     console.log(`🔄 Proxying ${route.path} to ${service.url}`);
-    const isDriverService = route.service === 'driver';
+    // For driver service, bypass http-proxy-middleware entirely and
+    // use a simple axios-based proxy. This avoids low-level socket
+    // handling that can trigger intermittent ECONNRESET with some CDNs.
+    if (route.service === 'driver') {
+        return async (req, res, next) => {
+            try {
+                const targetUrl = `${service.url}${req.path}`;
+                console.log(`📤 [driver-axios] ${req.method} ${req.path} → ${targetUrl}`);
+                // Clone headers but drop hop-by-hop ones that can confuse upstream
+                const { host, connection, 'content-length': _cl, 'accept-encoding': _ae, ...restHeaders } = req.headers;
+                const axiosResponse = await axios_1.default.request({
+                    url: targetUrl,
+                    method: req.method,
+                    headers: restHeaders,
+                    data: req.body,
+                    // Important: let us forward any status, don't throw on 4xx/5xx
+                    validateStatus: () => true,
+                    httpsAgent: new https_1.default.Agent({ keepAlive: false }),
+                    timeout: 30000,
+                });
+                console.log(`📥 [driver-axios] Response ${axiosResponse.status} from ${targetUrl}`);
+                // Forward status and body
+                res.status(axiosResponse.status);
+                // Ensure JSON is sent as JSON
+                if (typeof axiosResponse.data === 'object') {
+                    res.json(axiosResponse.data);
+                }
+                else {
+                    res.send(axiosResponse.data);
+                }
+            }
+            catch (err) {
+                console.error('❌ [driver-axios] Proxy error:', err.message || err);
+                const code = err.code || 'UNKNOWN';
+                if (code === 'ECONNRESET') {
+                    return res.status(503).json({
+                        status: 'error',
+                        message: 'Driver backend connection reset. The backend may be unreachable or experiencing issues.',
+                        error: 'ECONNRESET',
+                    });
+                }
+                if (code === 'ETIMEDOUT') {
+                    return res.status(504).json({
+                        status: 'error',
+                        message: 'Driver backend timeout. The request took too long to process.',
+                        error: 'ETIMEDOUT',
+                    });
+                }
+                if (code === 'ECONNREFUSED') {
+                    return res.status(503).json({
+                        status: 'error',
+                        message: 'Driver backend connection refused. The backend may be down or not accepting connections.',
+                        error: 'ECONNREFUSED',
+                    });
+                }
+                return res.status(500).json({
+                    status: 'error',
+                    message: 'Service unavailable',
+                    details: process.env.NODE_ENV === 'production' ? undefined : (err.message || String(err)),
+                    error: code,
+                });
+            }
+        };
+    }
     return (0, http_proxy_middleware_1.createProxyMiddleware)({
         target: service.url,
         changeOrigin: true,
-        // For driver service, use a non-keepAlive HTTPS agent to avoid
-        // intermittent ECONNRESET issues with upstream (e.g. Cloudflare/CDN).
-        agent: isDriverService ? driverHttpsAgent : undefined,
         timeout: 30000, // 30 second timeout
         proxyTimeout: 30000, // 30 second proxy timeout
         pathRewrite: {
