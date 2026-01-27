@@ -1,17 +1,30 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.routeMatcher = exports.createServiceProxy = void 0;
 const http_proxy_middleware_1 = require("http-proxy-middleware");
+const https_1 = __importDefault(require("https"));
 const services_1 = require("../config/services");
+// Use a dedicated HTTPS agent for driver service to avoid keep-alive / socket reuse
+// issues that can cause intermittent ECONNRESET with some CDNs/proxies.
+const driverHttpsAgent = new https_1.default.Agent({
+    keepAlive: false,
+});
 const createServiceProxy = (route) => {
     const service = services_1.services[route.service];
     if (!service) {
         throw new Error(`Service ${route.service} not found`);
     }
     console.log(`🔄 Proxying ${route.path} to ${service.url}`);
+    const isDriverService = route.service === 'driver';
     return (0, http_proxy_middleware_1.createProxyMiddleware)({
         target: service.url,
         changeOrigin: true,
+        // For driver service, use a non-keepAlive HTTPS agent to avoid
+        // intermittent ECONNRESET issues with upstream (e.g. Cloudflare/CDN).
+        agent: isDriverService ? driverHttpsAgent : undefined,
         timeout: 30000, // 30 second timeout
         proxyTimeout: 30000, // 30 second proxy timeout
         pathRewrite: {

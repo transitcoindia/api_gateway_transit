@@ -1,7 +1,14 @@
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import https from 'https';
 import { Request, Response, NextFunction } from 'express';
 import { services, routes } from '../config/services';
 import { RouteConfig } from '../types';
+
+// Use a dedicated HTTPS agent for driver service to avoid keep-alive / socket reuse
+// issues that can cause intermittent ECONNRESET with some CDNs/proxies.
+const driverHttpsAgent = new https.Agent({
+  keepAlive: false,
+});
 
 export const createServiceProxy = (route: RouteConfig) => {
   const service = services[route.service];
@@ -12,9 +19,14 @@ export const createServiceProxy = (route: RouteConfig) => {
 
   console.log(`🔄 Proxying ${route.path} to ${service.url}`);
 
+  const isDriverService = route.service === 'driver';
+
   return createProxyMiddleware({
     target: service.url,
     changeOrigin: true,
+    // For driver service, use a non-keepAlive HTTPS agent to avoid
+    // intermittent ECONNRESET issues with upstream (e.g. Cloudflare/CDN).
+    agent: isDriverService ? driverHttpsAgent : undefined,
     timeout: 30000, // 30 second timeout
     proxyTimeout: 30000, // 30 second proxy timeout
     pathRewrite: {
