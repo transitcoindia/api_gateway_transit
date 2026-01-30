@@ -2,6 +2,7 @@ import express from 'express';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import redis from '../redis';
+import { RIDER_BACKEND_URL } from '../config/env';
 import { WebSocketService } from '../services/websocketService';
 dotenv.config();
 
@@ -14,7 +15,7 @@ ridesRouter.get('/health', (req, res) => {
     status: 'OK',
     service: 'API Gateway Rides Router',
     timestamp: new Date().toISOString(),
-    riderBackendUrl: process.env.RIDER_BACKEND_URL || 'http://localhost:8000'
+    riderBackendUrl: RIDER_BACKEND_URL
   });
 });
 
@@ -33,10 +34,15 @@ ridesRouter.post('/request', async (req, res) => {
       const data = response.data || {};
       const rideId = data.rideId;
       if (rideId) {
+        const authHeader = req.headers.authorization;
+        const riderAccessToken = authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+          ? authHeader.split(' ')[1]
+          : undefined;
         wsService.broadcastRideRequestFromRest({
           rideId,
           rideCode: data.rideCode,
           riderId: (req as any)?.user?.id,
+          accessToken: riderAccessToken || (authHeader as string),
           requestBody: req.body,
           fare: data.fare,
           candidateDrivers: data.candidateDrivers
