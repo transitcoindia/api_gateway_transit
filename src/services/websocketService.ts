@@ -495,19 +495,6 @@ export class WebSocketService {
       return { ok: false, message: 'Ride details not found', riderStoreSuccess: false, driverStoreSuccess: false };
     }
 
-    // Notify the rider via WS
-    const riderId = this.rideToRiderMap.get(rideId);
-    if (typeof riderId === 'string') {
-      const riderSocket = this.riderSockets.get(riderId);
-      if (riderSocket) {
-        riderSocket.emit('rideAccepted', { rideId, driverId, rideCode: storedRideDetails?.rideCode, timestamp: new Date().toISOString() });
-      } else {
-        this.io.to('riders').emit('rideAccepted', { rideId, driverId, rideCode: storedRideDetails?.rideCode, timestamp: new Date().toISOString() });
-      }
-    } else {
-      this.io.to('riders').emit('rideAccepted', { rideId, driverId, rideCode: storedRideDetails?.rideCode, timestamp: new Date().toISOString() });
-    }
-
     // Persist driver -> active ride mapping so location publisher can attach rideId
     if (redis.client) {
       try {
@@ -518,7 +505,7 @@ export class WebSocketService {
     }
 
     // Prepare ride payload for backends
-    const ridePayload = {
+    const ridePayload: Record<string, any> = {
       rideId,
       rideCode: storedRideDetails.rideCode || undefined,
       status: 'accepted',
@@ -555,22 +542,45 @@ export class WebSocketService {
       timestamp: new Date().toISOString()
     };
 
-    // Forward to rider backend
+    // 1) Forward to rider backend first so we get rideOtp; then notify rider with OTP automatically
     let riderStoreSuccess = false;
+    let rideOtp: string | undefined;
     try {
       const riderAccessToken = storedRideDetails?.accessToken;
       if (!process.env.rider_backend) throw new Error('rider_backend URL not set');
-      await axios.post(
+      const riderResponse = await axios.post(
         `${process.env.rider_backend}/api/rider/rides_accepted`,
         ridePayload,
         { headers: { Authorization: `Bearer ${riderAccessToken}` } }
       );
       riderStoreSuccess = true;
+      rideOtp = riderResponse?.data?.rideOtp ?? riderResponse?.data?.ride?.rideOtp;
+      if (rideOtp) ridePayload.rideOtp = rideOtp;
     } catch (err) {
       console.error('Failed to notify rider backend (REST accept):', (err as any).response?.data || (err as any).message);
     }
 
-    // Forward to driver backend
+    // 2) Notify the rider via WS with rideOtp so rider app gets OTP automatically (no separate GET needed)
+    const rideAcceptedPayload = {
+      rideId,
+      driverId,
+      rideCode: storedRideDetails?.rideCode,
+      rideOtp: rideOtp ?? null,
+      timestamp: new Date().toISOString()
+    };
+    const riderId = this.rideToRiderMap.get(rideId);
+    if (typeof riderId === 'string') {
+      const riderSocket = this.riderSockets.get(riderId);
+      if (riderSocket) {
+        riderSocket.emit('rideAccepted', rideAcceptedPayload);
+      } else {
+        this.io.to('riders').emit('rideAccepted', rideAcceptedPayload);
+      }
+    } else {
+      this.io.to('riders').emit('rideAccepted', rideAcceptedPayload);
+    }
+
+    // 3) Forward to driver backend
     let driverStoreSuccess = false;
     try {
       const driverBackendUrl = process.env.driver_backend;
