@@ -135,9 +135,15 @@ export const routes: RouteConfig[] = [
     authRequired: true
   },
   {
-    path: '/api/driver/profile/completion',
+    path: '/api/driver/profile/request-phone-otp',
     service: 'driver',
-    methods: ['GET'],
+    methods: ['POST'],
+    authRequired: true
+  },
+  {
+    path: '/api/driver/profile/verify-phone-otp',
+    service: 'driver',
+    methods: ['POST'],
     authRequired: true
   },
   {
