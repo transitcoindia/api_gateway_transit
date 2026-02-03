@@ -153,6 +153,12 @@ export const routes: RouteConfig[] = [
     authRequired: true
   },
   {
+    path: '/api/driver/subscription/plans',
+    service: 'driver',
+    methods: ['GET'],
+    authRequired: false
+  },
+  {
     path: '/api/driver/subscription/activate',
     service: 'driver',
     methods: ['POST'],
