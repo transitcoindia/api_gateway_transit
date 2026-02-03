@@ -38,10 +38,12 @@ ridesRouter.post('/request', async (req, res) => {
         const riderAccessToken = authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
           ? authHeader.split(' ')[1]
           : undefined;
+        // riderId: from auth if gateway had auth, else from body (rider app sends it so we can emit rideAccepted to correct rider)
+        const riderId = (req as any)?.user?.id ?? req.body?.riderId;
         wsService.broadcastRideRequestFromRest({
           rideId,
           rideCode: data.rideCode,
-          riderId: (req as any)?.user?.id,
+          riderId,
           accessToken: riderAccessToken || (authHeader as string),
           requestBody: req.body,
           fare: data.fare,
