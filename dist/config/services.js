@@ -132,9 +132,15 @@ exports.routes = [
         authRequired: true
     },
     {
-        path: '/api/driver/profile/completion',
+        path: '/api/driver/profile/request-phone-otp',
         service: 'driver',
-        methods: ['GET'],
+        methods: ['POST'],
+        authRequired: true
+    },
+    {
+        path: '/api/driver/profile/verify-phone-otp',
+        service: 'driver',
+        methods: ['POST'],
         authRequired: true
     },
     {
@@ -142,6 +148,12 @@ exports.routes = [
         service: 'driver',
         methods: ['POST'],
         authRequired: true
+    },
+    {
+        path: '/api/driver/subscription/plans',
+        service: 'driver',
+        methods: ['GET'],
+        authRequired: false
     },
     {
         path: '/api/driver/subscription/activate',

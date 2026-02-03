@@ -8,6 +8,7 @@ const express_1 = __importDefault(require("express"));
 const axios_1 = __importDefault(require("axios"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const redis_1 = __importDefault(require("../redis"));
+const env_1 = require("../config/env");
 dotenv_1.default.config();
 const createRidesRouter = (wsService) => {
     const ridesRouter = express_1.default.Router();
@@ -17,7 +18,7 @@ const createRidesRouter = (wsService) => {
             status: 'OK',
             service: 'API Gateway Rides Router',
             timestamp: new Date().toISOString(),
-            riderBackendUrl: process.env.RIDER_BACKEND_URL || 'http://localhost:8000'
+            riderBackendUrl: env_1.RIDER_BACKEND_URL
         });
     });
     // rider app will request ride to api-gateway
@@ -35,10 +36,17 @@ const createRidesRouter = (wsService) => {
                 const data = response.data || {};
                 const rideId = data.rideId;
                 if (rideId) {
+                    const authHeader = req.headers.authorization;
+                    const riderAccessToken = authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+                        ? authHeader.split(' ')[1]
+                        : undefined;
+                    // riderId: from auth if gateway had auth, else from body (rider app sends it so we can emit rideAccepted to correct rider)
+                    const riderId = req?.user?.id ?? req.body?.riderId;
                     wsService.broadcastRideRequestFromRest({
                         rideId,
                         rideCode: data.rideCode,
-                        riderId: req?.user?.id,
+                        riderId,
+                        accessToken: riderAccessToken || authHeader,
                         requestBody: req.body,
                         fare: data.fare,
                         candidateDrivers: data.candidateDrivers

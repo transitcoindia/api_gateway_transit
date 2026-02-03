@@ -450,6 +450,12 @@ export class WebSocketService {
     if (riderId) {
       this.rideToRiderMap.set(rideId, riderId);
     }
+    const estimatedFare = (fare && typeof fare === 'object' && fare.totalAmount != null)
+      ? Number(fare.totalAmount)
+      : (requestBody?.estimatedFare != null ? Number(requestBody.estimatedFare) : undefined);
+    const estimatedDistance = (fare && typeof fare === 'object' && fare.estimatedDistance != null)
+      ? Number(fare.estimatedDistance)
+      : (requestBody?.estimatedDistance != null ? Number(requestBody.estimatedDistance) : undefined);
     const details = {
       ...(requestBody || {}),
       rideId,
@@ -457,13 +463,15 @@ export class WebSocketService {
       riderId,
       accessToken,
       fare,
+      estimatedFare,
+      estimatedDistance,
       candidateDrivers
     };
     // Store for later use in acceptRide (tokens, coordinates, etc.)
     rideDetailsMap.set(rideId, details);
 
-    // Broadcast to drivers room with concise payload
-    this.io.to('drivers').emit('newRideRequest', {
+    // Broadcast to drivers: include fare + top-level estimatedFare/estimatedDistance so driver app shows price
+    const payload = {
       rideId,
       rideCode,
       ...((requestBody && (requestBody.pickup || requestBody.dropoff)) ? {
@@ -474,9 +482,31 @@ export class WebSocketService {
         rideType: requestBody.rideType,
       } : requestBody || {}),
       fare,
+      estimatedFare,
+      estimatedDistance,
+      pickupLatitude: requestBody?.pickupLatitude ?? requestBody?.pickup?.latitude,
+      pickupLongitude: requestBody?.pickupLongitude ?? requestBody?.pickup?.longitude,
+      dropLatitude: requestBody?.dropLatitude ?? requestBody?.dropoff?.latitude,
+      dropLongitude: requestBody?.dropLongitude ?? requestBody?.dropoff?.longitude,
+      pickupAddress: requestBody?.pickupAddress,
+      dropAddress: requestBody?.dropAddress,
+      requestedVehicleType: requestBody?.requestedVehicleType ?? requestBody?.rideType,
       candidateDrivers,
       timestamp: new Date().toISOString()
-    });
+    };
+    // Vehicle-type filtering: only send to drivers in candidateDrivers when present (rider backend already filtered by vehicle type)
+    const candidates = candidateDrivers && Array.isArray(candidateDrivers) ? candidateDrivers : [];
+    if (candidates.length > 0) {
+      for (const c of candidates) {
+        const driverId = c?.id ?? c?.driverId ?? (typeof c === 'string' ? c : null);
+        if (driverId) {
+          const socket = this.getDriverSocket(String(driverId));
+          if (socket) socket.emit('newRideRequest', payload);
+        }
+      }
+    } else {
+      this.io.to('drivers').emit('newRideRequest', payload);
+    }
   }
 
   public getDriverSocket(driverId: string): AuthenticatedSocket | undefined {

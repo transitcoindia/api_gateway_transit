@@ -386,6 +386,12 @@ class WebSocketService {
         if (riderId) {
             this.rideToRiderMap.set(rideId, riderId);
         }
+        const estimatedFare = (fare && typeof fare === 'object' && fare.totalAmount != null)
+            ? Number(fare.totalAmount)
+            : (requestBody?.estimatedFare != null ? Number(requestBody.estimatedFare) : undefined);
+        const estimatedDistance = (fare && typeof fare === 'object' && fare.estimatedDistance != null)
+            ? Number(fare.estimatedDistance)
+            : (requestBody?.estimatedDistance != null ? Number(requestBody.estimatedDistance) : undefined);
         const details = {
             ...(requestBody || {}),
             rideId,
@@ -393,12 +399,14 @@ class WebSocketService {
             riderId,
             accessToken,
             fare,
+            estimatedFare,
+            estimatedDistance,
             candidateDrivers
         };
         // Store for later use in acceptRide (tokens, coordinates, etc.)
         rideDetailsMap.set(rideId, details);
-        // Broadcast to drivers room with concise payload
-        this.io.to('drivers').emit('newRideRequest', {
+        // Broadcast to drivers: include fare + top-level estimatedFare/estimatedDistance so driver app shows price
+        const payload = {
             rideId,
             rideCode,
             ...((requestBody && (requestBody.pickup || requestBody.dropoff)) ? {
@@ -409,9 +417,33 @@ class WebSocketService {
                 rideType: requestBody.rideType,
             } : requestBody || {}),
             fare,
+            estimatedFare,
+            estimatedDistance,
+            pickupLatitude: requestBody?.pickupLatitude ?? requestBody?.pickup?.latitude,
+            pickupLongitude: requestBody?.pickupLongitude ?? requestBody?.pickup?.longitude,
+            dropLatitude: requestBody?.dropLatitude ?? requestBody?.dropoff?.latitude,
+            dropLongitude: requestBody?.dropLongitude ?? requestBody?.dropoff?.longitude,
+            pickupAddress: requestBody?.pickupAddress,
+            dropAddress: requestBody?.dropAddress,
+            requestedVehicleType: requestBody?.requestedVehicleType ?? requestBody?.rideType,
             candidateDrivers,
             timestamp: new Date().toISOString()
-        });
+        };
+        // Vehicle-type filtering: only send to drivers in candidateDrivers when present (rider backend already filtered by vehicle type)
+        const candidates = candidateDrivers && Array.isArray(candidateDrivers) ? candidateDrivers : [];
+        if (candidates.length > 0) {
+            for (const c of candidates) {
+                const driverId = c?.id ?? c?.driverId ?? (typeof c === 'string' ? c : null);
+                if (driverId) {
+                    const socket = this.getDriverSocket(String(driverId));
+                    if (socket)
+                        socket.emit('newRideRequest', payload);
+                }
+            }
+        }
+        else {
+            this.io.to('drivers').emit('newRideRequest', payload);
+        }
     }
     getDriverSocket(driverId) {
         return this.driverSockets.get(driverId);
@@ -425,20 +457,6 @@ class WebSocketService {
         const storedRideDetails = rideDetailsMap.get(rideId);
         if (!storedRideDetails) {
             return { ok: false, message: 'Ride details not found', riderStoreSuccess: false, driverStoreSuccess: false };
-        }
-        // Notify the rider via WS
-        const riderId = this.rideToRiderMap.get(rideId);
-        if (typeof riderId === 'string') {
-            const riderSocket = this.riderSockets.get(riderId);
-            if (riderSocket) {
-                riderSocket.emit('rideAccepted', { rideId, driverId, rideCode: storedRideDetails?.rideCode, timestamp: new Date().toISOString() });
-            }
-            else {
-                this.io.to('riders').emit('rideAccepted', { rideId, driverId, rideCode: storedRideDetails?.rideCode, timestamp: new Date().toISOString() });
-            }
-        }
-        else {
-            this.io.to('riders').emit('rideAccepted', { rideId, driverId, rideCode: storedRideDetails?.rideCode, timestamp: new Date().toISOString() });
         }
         // Persist driver -> active ride mapping so location publisher can attach rideId
         if (redis_1.default.client) {
@@ -486,19 +504,44 @@ class WebSocketService {
             driverLocationUpdates: [],
             timestamp: new Date().toISOString()
         };
-        // Forward to rider backend
+        // 1) Forward to rider backend first so we get rideOtp; then notify rider with OTP automatically
         let riderStoreSuccess = false;
+        let rideOtp;
         try {
             const riderAccessToken = storedRideDetails?.accessToken;
             if (!process.env.rider_backend)
                 throw new Error('rider_backend URL not set');
-            await axios_1.default.post(`${process.env.rider_backend}/api/rider/rides_accepted`, ridePayload, { headers: { Authorization: `Bearer ${riderAccessToken}` } });
+            const riderResponse = await axios_1.default.post(`${process.env.rider_backend}/api/rider/rides_accepted`, ridePayload, { headers: { Authorization: `Bearer ${riderAccessToken}` } });
             riderStoreSuccess = true;
+            rideOtp = riderResponse?.data?.rideOtp ?? riderResponse?.data?.ride?.rideOtp;
+            if (rideOtp)
+                ridePayload.rideOtp = rideOtp;
         }
         catch (err) {
             console.error('Failed to notify rider backend (REST accept):', err.response?.data || err.message);
         }
-        // Forward to driver backend
+        // 2) Notify the rider via WS with rideOtp so rider app gets OTP automatically (no separate GET needed)
+        const rideAcceptedPayload = {
+            rideId,
+            driverId,
+            rideCode: storedRideDetails?.rideCode,
+            rideOtp: rideOtp ?? null,
+            timestamp: new Date().toISOString()
+        };
+        const riderId = this.rideToRiderMap.get(rideId);
+        if (typeof riderId === 'string') {
+            const riderSocket = this.riderSockets.get(riderId);
+            if (riderSocket) {
+                riderSocket.emit('rideAccepted', rideAcceptedPayload);
+            }
+            else {
+                this.io.to('riders').emit('rideAccepted', rideAcceptedPayload);
+            }
+        }
+        else {
+            this.io.to('riders').emit('rideAccepted', rideAcceptedPayload);
+        }
+        // 3) Forward to driver backend
         let driverStoreSuccess = false;
         try {
             const driverBackendUrl = process.env.driver_backend;
