@@ -597,7 +597,9 @@ export class WebSocketService {
             rideOtp = riderResponse?.data?.rideOtp ?? riderResponse?.data?.ride?.rideOtp;
             if (rideOtp) ridePayload.rideOtp = rideOtp;
           } else {
-            riderError = (riderResponse.data?.message ?? riderResponse.data?.error ?? `Rider backend ${riderResponse.status}`) as string;
+            const errMsg = (riderResponse.data?.error ?? riderResponse.data?.message ?? `Rider backend ${riderResponse.status}`) as string;
+            const details = riderResponse.data?.details;
+            riderError = details ? `${errMsg}: ${details}` : errMsg;
             console.error('[ACCEPT] Rider backend failed:', riderResponse.status, riderResponse.data);
           }
         }
