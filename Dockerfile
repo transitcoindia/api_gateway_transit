@@ -7,6 +7,9 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
+# Reduce ECONNRESET on ECS/CodeBuild: longer timeout, retries
+RUN npm config set fetch-timeout 60000 && npm config set fetch-retries 5
+
 # Install dependencies
 RUN npm ci --only=production
 

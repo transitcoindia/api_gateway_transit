@@ -490,7 +490,7 @@ export class WebSocketService {
       dropLongitude: requestBody?.dropLongitude ?? requestBody?.dropoff?.longitude,
       pickupAddress: requestBody?.pickupAddress,
       dropAddress: requestBody?.dropAddress,
-      requestedVehicleType: requestBody?.requestedVehicleType ?? requestBody?.rideType,
+      requestedVehicleType: requestBody?.requestedVehicleType ?? undefined,
       candidateDrivers,
       timestamp: new Date().toISOString()
     };
