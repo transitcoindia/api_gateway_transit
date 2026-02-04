@@ -5,6 +5,7 @@ import { subscribeToDriverLocations } from './driverLocationSubscriber';
 import { subscribeToRideStatus } from './rideStatusSubscriber';
 import redis from '../redis';
 import { getWebSocketConfig } from '../config/websocket';
+import { RIDER_BACKEND_URL, DRIVER_BACKEND_URL } from '../config/env';
 
 interface AuthenticatedSocket {
   id: string;
@@ -293,7 +294,7 @@ export class WebSocketService {
         try {
           console.log('Forwarding access token to rider backend:', accessToken);
           await axios.post(
-            `${process.env.rider_backend}/api/rider/rides_accepted`,
+            `${RIDER_BACKEND_URL.replace(/\/$/, '')}/api/rider/rides_accepted`,
             ridePayload,
             {
               headers: {
@@ -310,8 +311,7 @@ export class WebSocketService {
         //after accepting the ride store into the driver databse
         let driverStoreSuccess = false;
         try {
-          const driverBackendUrl = process.env.driver_backend;
-          // console.log('driver_backend URL:', driverBackendUrl);
+          const driverBackendUrl = DRIVER_BACKEND_URL.replace(/\/$/, '');
           if (!driverBackendUrl || !/^https?:\/\//.test(driverBackendUrl)) {
             throw new Error('Invalid driver_backend URL');
           }
@@ -572,21 +572,38 @@ export class WebSocketService {
       timestamp: new Date().toISOString()
     };
 
-    // 1) Forward to rider backend first so we get rideOtp; then notify rider with OTP automatically
+    // 1) Forward to rider backend first so we get rideOtp; rider backend updates ride status to "accepted"
     let riderStoreSuccess = false;
     let rideOtp: string | undefined;
+    let riderError: string | undefined;
     try {
       const riderAccessToken = storedRideDetails?.accessToken;
-      if (!process.env.rider_backend) throw new Error('rider_backend URL not set');
-      const riderResponse = await axios.post(
-        `${process.env.rider_backend}/api/rider/rides_accepted`,
-        ridePayload,
-        { headers: { Authorization: `Bearer ${riderAccessToken}` } }
-      );
-      riderStoreSuccess = true;
-      rideOtp = riderResponse?.data?.rideOtp ?? riderResponse?.data?.ride?.rideOtp;
-      if (rideOtp) ridePayload.rideOtp = rideOtp;
+      if (!riderAccessToken) {
+        riderError = 'Rider token not stored at request time – cannot update rider backend';
+        console.error('[ACCEPT]', riderError);
+      } else {
+        const riderUrl = RIDER_BACKEND_URL.replace(/\/$/, '');
+        if (!riderUrl) {
+          riderError = 'RIDER_BACKEND_URL not set';
+          console.error('[ACCEPT]', riderError);
+        } else {
+          const riderResponse = await axios.post(
+            `${riderUrl}/api/rider/rides_accepted`,
+            ridePayload,
+            { headers: { Authorization: `Bearer ${riderAccessToken}` }, validateStatus: () => true }
+          );
+          if (riderResponse.status >= 200 && riderResponse.status < 300) {
+            riderStoreSuccess = true;
+            rideOtp = riderResponse?.data?.rideOtp ?? riderResponse?.data?.ride?.rideOtp;
+            if (rideOtp) ridePayload.rideOtp = rideOtp;
+          } else {
+            riderError = (riderResponse.data?.message ?? riderResponse.data?.error ?? `Rider backend ${riderResponse.status}`) as string;
+            console.error('[ACCEPT] Rider backend failed:', riderResponse.status, riderResponse.data);
+          }
+        }
+      }
     } catch (err) {
+      riderError = (err as any).response?.data?.message ?? (err as any).message ?? 'Rider backend request failed';
       console.error('Failed to notify rider backend (REST accept):', (err as any).response?.data || (err as any).message);
     }
 
@@ -610,31 +627,51 @@ export class WebSocketService {
       this.io.to('riders').emit('rideAccepted', rideAcceptedPayload);
     }
 
-    // 3) Forward to driver backend
+    // 3) Forward to driver backend (must succeed for accept to be considered successful)
     let driverStoreSuccess = false;
+    let driverError: string | undefined;
     try {
-      const driverBackendUrl = process.env.driver_backend;
+      const driverBackendUrl = DRIVER_BACKEND_URL.replace(/\/$/, '');
       if (!driverBackendUrl || !/^https?:\/\//.test(driverBackendUrl)) {
-        throw new Error('Invalid driver_backend URL');
+        driverError = 'Invalid driver_backend URL';
+        console.error('[ACCEPT]', driverError);
+      } else {
+        const driverResponse = await axios.post(
+          `${driverBackendUrl}/api/driver/rides_accepted`,
+          ridePayload,
+          {
+            headers: { Authorization: `Bearer ${driverAccessToken || ''}`, 'Content-Type': 'application/json' },
+            validateStatus: () => true,
+          }
+        );
+        if (driverResponse.status >= 200 && driverResponse.status < 300) {
+          driverStoreSuccess = true;
+        } else {
+          driverError = (driverResponse.data?.message ?? driverResponse.data?.error ?? `Driver backend ${driverResponse.status}`) as string;
+          console.error('[ACCEPT] Driver backend failed:', driverResponse.status, driverResponse.data);
+        }
       }
-      await axios.post(
-        `${driverBackendUrl}/api/driver/rides_accepted`,
-        ridePayload,
-        { headers: { Authorization: `Bearer ${driverAccessToken || ''}` } }
-      );
-      driverStoreSuccess = true;
     } catch (err) {
+      driverError = (err as any).response?.data?.message ?? (err as any).message ?? 'Driver backend request failed';
       console.error('Failed to notify driver backend (REST accept):', (err as any).response?.data || (err as any).message);
     }
 
     const message = riderStoreSuccess && driverStoreSuccess
       ? 'Ride stored successfully in both rider and driver backend.'
       : riderStoreSuccess
-        ? 'Ride stored successfully in rider backend.'
+        ? (driverError ? `Rider saved but driver backend failed: ${driverError}` : 'Ride stored successfully in rider backend.')
         : driverStoreSuccess
-          ? 'Ride stored successfully in driver backend.'
-          : 'Failed to persist ride details';
+          ? (riderError ? `Driver saved but rider backend failed: ${riderError}` : 'Ride stored successfully in driver backend.')
+          : riderError ?? driverError ?? 'Failed to persist ride details';
 
+    // If rider backend failed, ride status is not "accepted" in rider DB – return error
+    if (!riderStoreSuccess) {
+      return { ok: false, message: message, riderStoreSuccess: false, driverStoreSuccess: !!driverStoreSuccess };
+    }
+    // If driver backend failed, driver app won't see the ride – return error so client can retry
+    if (!driverStoreSuccess) {
+      return { ok: false, message: message, riderStoreSuccess: true, driverStoreSuccess: false };
+    }
     return { ok: true, message, riderStoreSuccess, driverStoreSuccess };
   }
 } 

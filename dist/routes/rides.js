@@ -24,9 +24,9 @@ const createRidesRouter = (wsService) => {
     // rider app will request ride to api-gateway
     ridesRouter.post('/request', async (req, res) => {
         try {
-            // Forward the ride request to the rider backend (transit_backend-1)
-            const BACKEND_URL = process.env.RIDER_BACKEND_URL || 'http://localhost:8000';
-            const response = await axios_1.default.post(`${BACKEND_URL}/api/rider/request`, req.body, {
+            // Forward the ride request to the rider backend (uses RIDER_BACKEND_URL from config/env)
+            const backendUrl = env_1.RIDER_BACKEND_URL.replace(/\/$/, '');
+            const response = await axios_1.default.post(`${backendUrl}/api/rider/request`, req.body, {
                 headers: {
                     'Content-Type': 'application/json',
                     ...(req.headers.authorization ? { 'Authorization': req.headers.authorization } : {})
@@ -37,16 +37,23 @@ const createRidesRouter = (wsService) => {
                 const rideId = data.rideId;
                 if (rideId) {
                     const authHeader = req.headers.authorization;
+                    // Only store the raw token (no "Bearer " prefix) so rider backend gets "Authorization: Bearer <token>"
                     const riderAccessToken = authHeader && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
-                        ? authHeader.split(' ')[1]
+                        ? authHeader.split(' ')[1]?.trim()
                         : undefined;
-                    // riderId: from auth if gateway had auth, else from body (rider app sends it so we can emit rideAccepted to correct rider)
-                    const riderId = req?.user?.id ?? req.body?.riderId;
+                    // riderId: from rider backend response (so driver backend gets it on accept), else body/auth
+                    const riderId = data.riderId ?? req?.user?.id ?? req.body?.riderId;
+                    if (!riderId) {
+                        console.warn('[RIDE_REQUEST] No riderId in response/body/auth – driver backend rides_accepted will return 400');
+                    }
+                    if (!riderAccessToken) {
+                        console.warn('[RIDE_REQUEST] No rider access token – rider backend rides_accepted will return 401');
+                    }
                     wsService.broadcastRideRequestFromRest({
                         rideId,
                         rideCode: data.rideCode,
                         riderId,
-                        accessToken: riderAccessToken || authHeader,
+                        accessToken: riderAccessToken,
                         requestBody: req.body,
                         fare: data.fare,
                         candidateDrivers: data.candidateDrivers
@@ -81,6 +88,10 @@ const createRidesRouter = (wsService) => {
             const result = await wsService.acceptRideFromRest({ rideId, driverId, driverAccessToken });
             if (!result.ok) {
                 return res.status(404).json({ error: result.message });
+            }
+            // Never return success when message indicates persistence failure
+            if (result.message && /failed to persist|failed to save|backend failed/i.test(result.message)) {
+                return res.status(503).json({ error: result.message });
             }
             return res.json({ success: true, message: result.message });
         }

@@ -24,10 +24,10 @@ exports.DRIVER_BACKEND_URL = val([
     'driver_backend',
     'DRIVER_BACKEND_URL'
 ], 'http://localhost:3000');
-// Check for rider_backend first (Render env var), then RIDER_BACKEND_URL, then fallbacks
+// RIDER_BACKEND_URL first so local dev (localhost:8000) overrides rider_backend when set
 exports.RIDER_BACKEND_URL = val([
-    'rider_backend',
     'RIDER_BACKEND_URL',
+    'rider_backend',
     'TRANSIT_SERVICE_URL'
 ], 'http://localhost:8000');
 // Log resolved URLs for debugging
