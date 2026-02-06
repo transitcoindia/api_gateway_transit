@@ -392,6 +392,69 @@ export class WebSocketService {
         });
       });
 
+      // Handle real-time chat
+      socket.on('chat:send', async (data: { rideId: string; text: string }) => {
+        const rideId = data?.rideId;
+        const text = typeof data?.text === 'string' ? data.text.trim() : '';
+        if (!rideId || !text) {
+          socket.emit('chat:error', { message: 'rideId and text are required' });
+          return;
+        }
+        const accessToken = (socket as any).accessToken;
+        if (!accessToken) {
+          socket.emit('chat:error', { message: 'Not authenticated' });
+          return;
+        }
+        try {
+          if (connectionType === 'driver' && userId) {
+            const driverUrl = DRIVER_BACKEND_URL.replace(/\/$/, '');
+            const res = await axios.post(
+              `${driverUrl}/api/driver/rides/${rideId}/chat`,
+              { text },
+              { headers: { Authorization: `Bearer ${accessToken}` }, validateStatus: () => true }
+            );
+            const body = res.data;
+            if (res.status >= 200 && res.status < 300 && body?.success && body?.data?.message) {
+              const riderId = body.riderId;
+              if (riderId && this.riderSockets.has(riderId)) {
+                this.riderSockets.get(riderId)!.emit('chat:message', {
+                  rideId,
+                  message: body.data.message,
+                });
+              }
+              socket.emit('chat:sent', { message: body.data.message });
+            } else {
+              socket.emit('chat:error', { message: body?.message || 'Failed to send message' });
+            }
+          } else if (connectionType === 'rider' && userId) {
+            const riderUrl = RIDER_BACKEND_URL.replace(/\/$/, '');
+            const res = await axios.post(
+              `${riderUrl}/api/rider/${rideId}/chat`,
+              { text },
+              { headers: { Authorization: `Bearer ${accessToken}` }, validateStatus: () => true }
+            );
+            const body = res.data;
+            if (res.status >= 200 && res.status < 300 && body?.success && body?.data?.message) {
+              const driverId = body.driverId;
+              if (driverId && this.driverSockets.has(driverId)) {
+                this.driverSockets.get(driverId)!.emit('chat:message', {
+                  rideId,
+                  message: body.data.message,
+                });
+              }
+              socket.emit('chat:sent', { message: body.data.message });
+            } else {
+              socket.emit('chat:error', { message: body?.message || 'Failed to send message' });
+            }
+          } else {
+            socket.emit('chat:error', { message: 'Invalid connection type for chat' });
+          }
+        } catch (err: any) {
+          console.error('Chat send error:', err?.message || err);
+          socket.emit('chat:error', { message: 'Failed to send message' });
+        }
+      });
+
       // Handle disconnection
       socket.on('disconnect', (reason) => {
         console.log('🔌 Client Disconnected:', {

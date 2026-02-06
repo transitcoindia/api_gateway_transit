@@ -153,6 +153,12 @@ export const routes: RouteConfig[] = [
     authRequired: true
   },
   {
+    path: '/api/driver/profile/verification-selfie',
+    service: 'driver',
+    methods: ['POST'],
+    authRequired: true
+  },
+  {
     path: '/api/driver/subscription/plans',
     service: 'driver',
     methods: ['GET'],
