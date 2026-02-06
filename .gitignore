@@ -24,3 +24,4 @@ pnpm-debug.log*
 coverage/
 .nyc_output/
 *.tsbuildinfo
+deploy-gateway-to-ec2.ps1
