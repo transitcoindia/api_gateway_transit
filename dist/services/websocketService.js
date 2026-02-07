@@ -17,6 +17,8 @@ class WebSocketService {
         this.driverSockets = new Map();
         this.riderSockets = new Map();
         this.rideToRiderMap = new Map();
+        /** rideId -> { riderId, driverId } - populated on first chat:send so typing can be forwarded */
+        this.rideChatParticipants = new Map();
         this.io = new socket_io_1.Server(server, (0, websocket_1.getWebSocketConfig)());
         // Subscribe to driver location updates from Redis
         (0, driverLocationSubscriber_1.subscribeToDriverLocations)(this.io, this.rideToRiderMap);
@@ -361,6 +363,7 @@ class WebSocketService {
                         const body = res.data;
                         if (res.status >= 200 && res.status < 300 && body?.success && body?.data?.message) {
                             const riderId = body.riderId;
+                            this.rideChatParticipants.set(rideId, { riderId: riderId || '', driverId: userId });
                             if (riderId && this.riderSockets.has(riderId)) {
                                 this.riderSockets.get(riderId).emit('chat:message', {
                                     rideId,
@@ -379,6 +382,7 @@ class WebSocketService {
                         const body = res.data;
                         if (res.status >= 200 && res.status < 300 && body?.success && body?.data?.message) {
                             const driverId = body.driverId;
+                            this.rideChatParticipants.set(rideId, { riderId: userId, driverId: driverId || '' });
                             if (driverId && this.driverSockets.has(driverId)) {
                                 this.driverSockets.get(driverId).emit('chat:message', {
                                     rideId,
@@ -398,6 +402,26 @@ class WebSocketService {
                 catch (err) {
                     console.error('Chat send error:', err?.message || err);
                     socket.emit('chat:error', { message: 'Failed to send message' });
+                }
+            });
+            // Handle chat typing indicator (forward to other party)
+            socket.on('chat:typing', (data) => {
+                const rideId = data?.rideId;
+                const isTyping = data?.isTyping === true;
+                if (!rideId || !userId)
+                    return;
+                const participants = this.rideChatParticipants.get(rideId);
+                if (connectionType === 'driver') {
+                    const riderId = participants?.riderId ?? this.rideToRiderMap.get(rideId);
+                    if (riderId && this.riderSockets.has(riderId)) {
+                        this.riderSockets.get(riderId).emit('chat:typing', { rideId, isTyping, from: 'driver' });
+                    }
+                }
+                else if (connectionType === 'rider') {
+                    const driverId = participants?.driverId;
+                    if (driverId && this.driverSockets.has(driverId)) {
+                        this.driverSockets.get(driverId).emit('chat:typing', { rideId, isTyping, from: 'rider' });
+                    }
                 }
             });
             // Handle disconnection

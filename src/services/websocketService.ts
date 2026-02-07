@@ -24,6 +24,8 @@ export class WebSocketService {
   private driverSockets: Map<string, AuthenticatedSocket> = new Map();
   private riderSockets: Map<string, AuthenticatedSocket> = new Map();
   private rideToRiderMap: Map<string, string> = new Map();
+  /** rideId -> { riderId, driverId } - populated on first chat:send so typing can be forwarded */
+  private rideChatParticipants: Map<string, { riderId: string; driverId: string }> = new Map();
 
   constructor(server: HTTPServer) {
     this.io = new SocketIOServer(server, getWebSocketConfig());
@@ -416,6 +418,7 @@ export class WebSocketService {
             const body = res.data;
             if (res.status >= 200 && res.status < 300 && body?.success && body?.data?.message) {
               const riderId = body.riderId;
+              this.rideChatParticipants.set(rideId, { riderId: riderId || '', driverId: userId });
               if (riderId && this.riderSockets.has(riderId)) {
                 this.riderSockets.get(riderId)!.emit('chat:message', {
                   rideId,
@@ -436,6 +439,7 @@ export class WebSocketService {
             const body = res.data;
             if (res.status >= 200 && res.status < 300 && body?.success && body?.data?.message) {
               const driverId = body.driverId;
+              this.rideChatParticipants.set(rideId, { riderId: userId, driverId: driverId || '' });
               if (driverId && this.driverSockets.has(driverId)) {
                 this.driverSockets.get(driverId)!.emit('chat:message', {
                   rideId,
@@ -452,6 +456,25 @@ export class WebSocketService {
         } catch (err: any) {
           console.error('Chat send error:', err?.message || err);
           socket.emit('chat:error', { message: 'Failed to send message' });
+        }
+      });
+
+      // Handle chat typing indicator (forward to other party)
+      socket.on('chat:typing', (data: { rideId: string; isTyping: boolean }) => {
+        const rideId = data?.rideId;
+        const isTyping = data?.isTyping === true;
+        if (!rideId || !userId) return;
+        const participants = this.rideChatParticipants.get(rideId);
+        if (connectionType === 'driver') {
+          const riderId = participants?.riderId ?? this.rideToRiderMap.get(rideId);
+          if (riderId && this.riderSockets.has(riderId)) {
+            this.riderSockets.get(riderId)!.emit('chat:typing', { rideId, isTyping, from: 'driver' });
+          }
+        } else if (connectionType === 'rider') {
+          const driverId = participants?.driverId;
+          if (driverId && this.driverSockets.has(driverId)) {
+            this.driverSockets.get(driverId)!.emit('chat:typing', { rideId, isTyping, from: 'rider' });
+          }
         }
       });
 
