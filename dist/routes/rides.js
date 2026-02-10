@@ -74,6 +74,24 @@ const createRidesRouter = (wsService) => {
             }
         }
     });
+    // Internal: broadcast ride request to specific drivers (used by panel backend for scheduled rides)
+    ridesRouter.post('/internal/broadcast-ride-request', async (req, res) => {
+        const secret = process.env.INTERNAL_API_SECRET;
+        if (secret && req.headers['x-internal-secret'] !== secret) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        try {
+            const { driverIds, ride, riderId, accessToken } = req.body || {};
+            if (!Array.isArray(driverIds) || !ride || !ride.rideId) {
+                return res.status(400).json({ error: 'driverIds (array) and ride (with rideId) are required' });
+            }
+            wsService.broadcastRideRequestToDrivers(driverIds, ride, { riderId, accessToken });
+            return res.json({ success: true });
+        }
+        catch (err) {
+            return res.status(500).json({ error: 'Failed to broadcast ride request', details: err.message });
+        }
+    });
     // Driver accepts ride (HTTP alternative to WS)
     ridesRouter.post('/accept', async (req, res) => {
         try {

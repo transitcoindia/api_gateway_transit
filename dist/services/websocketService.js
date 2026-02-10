@@ -508,6 +508,9 @@ class WebSocketService {
             dropLongitude: requestBody?.dropLongitude ?? requestBody?.dropoff?.longitude,
             pickupAddress: requestBody?.pickupAddress,
             dropAddress: requestBody?.dropAddress,
+            waypoints: requestBody?.waypoints ?? undefined,
+            isRoundTrip: requestBody?.isRoundTrip === true || requestBody?.isRoundTrip === 'true',
+            stopCount: (Array.isArray(requestBody?.waypoints) ? requestBody.waypoints.length : 0) + (requestBody?.dropLatitude != null ? 2 : 1),
             requestedVehicleType: requestBody?.requestedVehicleType ?? undefined,
             candidateDrivers,
             timestamp: new Date().toISOString()
@@ -526,6 +529,56 @@ class WebSocketService {
         }
         else {
             this.io.to('drivers').emit('newRideRequest', payload);
+        }
+    }
+    // Internal broadcast for scheduled rides (panel backend): emit newRideRequest to given drivers via Gateway socket (same path as normal rides)
+    broadcastRideRequestToDrivers(driverIds, ride, options) {
+        const rideId = ride?.rideId;
+        if (!rideId) {
+            console.warn('broadcastRideRequestToDrivers called without ride.rideId');
+            return;
+        }
+        const riderId = options?.riderId;
+        const accessToken = options?.accessToken;
+        if (riderId) {
+            this.rideToRiderMap.set(rideId, riderId);
+        }
+        const candidateDrivers = (driverIds || []).map((id) => ({ id }));
+        const details = {
+            rideId,
+            rideCode: ride.rideCode,
+            riderId,
+            accessToken,
+            estimatedFare: ride.estimatedFare,
+            estimatedDistance: ride.estimatedDistance,
+            candidateDrivers,
+        };
+        rideDetailsMap.set(rideId, details);
+        const waypoints = ride.waypoints;
+        const payload = {
+            rideId,
+            rideCode: ride.rideCode,
+            pickupLatitude: ride.pickupLatitude,
+            pickupLongitude: ride.pickupLongitude,
+            dropLatitude: ride.dropLatitude,
+            dropLongitude: ride.dropLongitude,
+            pickupAddress: ride.pickupAddress,
+            dropAddress: ride.dropAddress,
+            waypoints,
+            isRoundTrip: ride.isRoundTrip === true || ride.isRoundTrip === 'true',
+            stopCount: (Array.isArray(waypoints) ? waypoints.length : 0) + (ride.dropLatitude != null ? 2 : 1),
+            estimatedFare: ride.estimatedFare,
+            estimatedDistance: ride.estimatedDistance,
+            requestedVehicleType: ride.requestedVehicleType,
+            isScheduled: ride.isScheduled ?? true,
+            scheduledPickupTime: ride.scheduledPickupTime,
+            candidateDrivers,
+            timestamp: new Date().toISOString(),
+        };
+        for (const driverId of driverIds) {
+            const socket = this.getDriverSocket(String(driverId));
+            if (socket)
+                socket.emit('newRideRequest', payload);
         }
     }
     getDriverSocket(driverId) {
