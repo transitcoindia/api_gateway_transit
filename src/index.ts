@@ -316,6 +316,7 @@ httpServer.listen(PORT, () => {
   console.log('GET  /websocket-health');
   console.log('GET  /api/gateway/rides/health');
   console.log('POST /api/gateway/rides/request');
+  console.log('POST /api/gateway/rides/internal/broadcast-ride-request (scheduled rides)');
   console.log('POST /api/driver/subscription/activate (proxies to driver backend)');
   
   // Warn if using localhost URLs in production

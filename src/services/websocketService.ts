@@ -595,6 +595,58 @@ export class WebSocketService {
     }
   }
 
+  // Internal broadcast for scheduled rides (panel backend): emit newRideRequest to given drivers via Gateway socket (same path as normal rides)
+  public broadcastRideRequestToDrivers(
+    driverIds: string[],
+    ride: Record<string, any>,
+    options?: { riderId?: string; accessToken?: string }
+  ) {
+    const rideId = ride?.rideId;
+    if (!rideId) {
+      console.warn('broadcastRideRequestToDrivers called without ride.rideId');
+      return;
+    }
+    const riderId = options?.riderId;
+    const accessToken = options?.accessToken;
+    if (riderId) {
+      this.rideToRiderMap.set(rideId, riderId);
+    }
+    const candidateDrivers = (driverIds || []).map((id) => ({ id }));
+    const details = {
+      rideId,
+      rideCode: ride.rideCode,
+      riderId,
+      accessToken,
+      estimatedFare: ride.estimatedFare,
+      estimatedDistance: ride.estimatedDistance,
+      candidateDrivers,
+    };
+    rideDetailsMap.set(rideId, details);
+
+    const payload = {
+      rideId,
+      rideCode: ride.rideCode,
+      pickupLatitude: ride.pickupLatitude,
+      pickupLongitude: ride.pickupLongitude,
+      dropLatitude: ride.dropLatitude,
+      dropLongitude: ride.dropLongitude,
+      pickupAddress: ride.pickupAddress,
+      dropAddress: ride.dropAddress,
+      estimatedFare: ride.estimatedFare,
+      estimatedDistance: ride.estimatedDistance,
+      requestedVehicleType: ride.requestedVehicleType,
+      isScheduled: ride.isScheduled ?? true,
+      scheduledPickupTime: ride.scheduledPickupTime,
+      candidateDrivers,
+      timestamp: new Date().toISOString(),
+    };
+
+    for (const driverId of driverIds) {
+      const socket = this.getDriverSocket(String(driverId));
+      if (socket) socket.emit('newRideRequest', payload);
+    }
+  }
+
   public getDriverSocket(driverId: string): AuthenticatedSocket | undefined {
     return this.driverSockets.get(driverId);
   }
