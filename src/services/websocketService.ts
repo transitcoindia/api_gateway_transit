@@ -615,6 +615,7 @@ export class WebSocketService {
       this.rideToRiderMap.set(rideId, riderId);
     }
     const candidateDrivers = (driverIds || []).map((id) => ({ id }));
+    const waypoints = ride.waypoints;
     const details = {
       rideId,
       rideCode: ride.rideCode,
@@ -623,10 +624,17 @@ export class WebSocketService {
       estimatedFare: ride.estimatedFare,
       estimatedDistance: ride.estimatedDistance,
       candidateDrivers,
+      pickupLatitude: ride.pickupLatitude,
+      pickupLongitude: ride.pickupLongitude,
+      pickupAddress: ride.pickupAddress,
+      dropLatitude: ride.dropLatitude,
+      dropLongitude: ride.dropLongitude,
+      dropAddress: ride.dropAddress,
+      waypoints,
+      ...ride,
     };
     rideDetailsMap.set(rideId, details);
 
-    const waypoints = ride.waypoints;
     const payload = {
       rideId,
       rideCode: ride.rideCode,
@@ -648,9 +656,9 @@ export class WebSocketService {
       timestamp: new Date().toISOString(),
     };
 
+    // Emit to driver room (reliable) – drivers join driver:${driverId} on authenticate
     for (const driverId of driverIds) {
-      const socket = this.getDriverSocket(String(driverId));
-      if (socket) socket.emit('newRideRequest', payload);
+      this.io.to(`driver:${String(driverId)}`).emit('newRideRequest', payload);
     }
   }
 
