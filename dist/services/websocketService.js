@@ -580,6 +580,8 @@ class WebSocketService {
             requestedVehicleType: ride.requestedVehicleType,
             isScheduled: ride.isScheduled ?? true,
             scheduledPickupTime: ride.scheduledPickupTime,
+            bookingForName: ride.bookingForName,
+            bookingForPhone: ride.bookingForPhone,
             candidateDrivers,
             timestamp: new Date().toISOString(),
         };
