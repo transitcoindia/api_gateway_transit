@@ -177,6 +177,18 @@ export const routes: RouteConfig[] = [
     authRequired: true
   },
   {
+    path: '/api/driver/availability',
+    service: 'driver',
+    methods: ['POST', 'GET'],
+    authRequired: true
+  },
+  {
+    path: '/api/driver/availability/heartbeat',
+    service: 'driver',
+    methods: ['POST'],
+    authRequired: true
+  },
+  {
     path: '/api/driver/rides_accepted',
     service: 'driver',
     methods: ['POST'],
