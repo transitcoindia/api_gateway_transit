@@ -105,7 +105,12 @@ const createRidesRouter = (wsService) => {
             }
             const result = await wsService.acceptRideFromRest({ rideId, driverId, driverAccessToken });
             if (!result.ok) {
-                return res.status(404).json({ error: result.message });
+                const status = result.code === 'RIDE_ALREADY_ASSIGNED' ? 409 : 404;
+                return res.status(status).json({
+                    success: false,
+                    error: result.message,
+                    code: result.code,
+                });
             }
             // Never return success when message indicates persistence failure
             if (result.message && /failed to persist|failed to save|backend failed/i.test(result.message)) {
