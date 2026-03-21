@@ -107,7 +107,12 @@ ridesRouter.post('/accept', async (req, res) => {
     if (result.message && /failed to persist|failed to save|backend failed/i.test(result.message)) {
       return res.status(503).json({ error: result.message });
     }
-    return res.json({ success: true, message: result.message });
+    // Driver app uses this to confirm navigation without waiting on GET (loser's GET is always null).
+    return res.json({
+      success: true,
+      message: result.message,
+      assignedDriverId: driverId,
+    });
   } catch (err: any) {
     return res.status(500).json({ error: 'Failed to accept ride', details: err.message });
   }

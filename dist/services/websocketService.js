@@ -749,7 +749,40 @@ class WebSocketService {
         if (!driverStoreSuccess) {
             return { ok: false, message: message, riderStoreSuccess: true, driverStoreSuccess: false };
         }
+        // Other drivers still showing the incoming-ride popup must dismiss it immediately.
+        this.emitRideRequestClosedAfterAccept(rideId, driverId, storedRideDetails);
         return { ok: true, message, riderStoreSuccess, driverStoreSuccess };
+    }
+    /**
+     * Notify all drivers who saw this ride request that it is no longer available
+     * (another driver accepted). Driver apps listen for `rideRequestClosed`.
+     */
+    emitRideRequestClosedAfterAccept(rideId, acceptedDriverId, storedRideDetails) {
+        try {
+            const payload = {
+                rideId,
+                acceptedDriverId,
+                reason: 'assigned',
+                timestamp: new Date().toISOString()
+            };
+            const candidates = storedRideDetails?.candidateDrivers;
+            if (Array.isArray(candidates) && candidates.length > 0) {
+                for (const c of candidates) {
+                    const id = c?.id ?? c?.driverId ?? (typeof c === 'string' ? c : null);
+                    if (!id)
+                        continue;
+                    if (String(id) === String(acceptedDriverId))
+                        continue;
+                    this.io.to(`driver:${String(id)}`).emit('rideRequestClosed', payload);
+                }
+            }
+            else {
+                this.io.to('drivers').emit('rideRequestClosed', payload);
+            }
+        }
+        catch (e) {
+            console.warn('[ACCEPT] emitRideRequestClosedAfterAccept failed', e);
+        }
     }
 }
 exports.WebSocketService = WebSocketService;
