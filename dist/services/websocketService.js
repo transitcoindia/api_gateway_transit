@@ -12,6 +12,36 @@ const redis_1 = __importDefault(require("../redis"));
 const websocket_1 = require("../config/websocket");
 const env_1 = require("../config/env");
 const rideDetailsMap = new Map();
+const RIDE_DETAILS_REDIS_PREFIX = 'gateway:ride_details:';
+/** Match active-ride Redis TTL so accept still works after gateway restart. */
+const RIDE_DETAILS_TTL_SEC = 7200;
+function setRideDetails(rideId, details) {
+    rideDetailsMap.set(rideId, details);
+    if (redis_1.default.client) {
+        const key = `${RIDE_DETAILS_REDIS_PREFIX}${rideId}`;
+        redis_1.default
+            .set(key, JSON.stringify(details), 'EX', RIDE_DETAILS_TTL_SEC)
+            .catch(() => { });
+    }
+}
+async function getRideDetails(rideId) {
+    const mem = rideDetailsMap.get(rideId);
+    if (mem)
+        return mem;
+    if (!redis_1.default.client)
+        return undefined;
+    try {
+        const raw = await redis_1.default.get(`${RIDE_DETAILS_REDIS_PREFIX}${rideId}`);
+        if (!raw)
+            return undefined;
+        const parsed = JSON.parse(raw);
+        rideDetailsMap.set(rideId, parsed);
+        return parsed;
+    }
+    catch {
+        return undefined;
+    }
+}
 class WebSocketService {
     constructor(server) {
         this.driverSockets = new Map();
@@ -158,7 +188,7 @@ class WebSocketService {
                     this.rideToRiderMap.set(rideId, socket.userId);
                 }
                 // Store the full ride details in memory for later use
-                rideDetailsMap.set(rideId, {
+                setRideDetails(rideId, {
                     ...data,
                     rideId,
                     rideCode,
@@ -184,7 +214,7 @@ class WebSocketService {
                     socket.emit('acceptRideAck', { rideId, status: 'error', message: 'rideId and driverId are required' });
                     return;
                 }
-                const storedRideDetails = rideDetailsMap.get(rideId);
+                const storedRideDetails = await getRideDetails(rideId);
                 if (!storedRideDetails) {
                     console.error('No ride details found for rideId:', rideId);
                     socket.emit('acceptRideAck', { rideId, status: 'error', message: 'Ride details not found' });
@@ -192,7 +222,7 @@ class WebSocketService {
                 }
                 if (data.accessToken) {
                     storedRideDetails.driverAccessToken = data.accessToken;
-                    rideDetailsMap.set(rideId, storedRideDetails);
+                    setRideDetails(rideId, storedRideDetails);
                 }
                 const result = await this.acceptRideFromRest({
                     rideId,
@@ -395,7 +425,7 @@ class WebSocketService {
             candidateDrivers
         };
         // Store for later use in acceptRide (tokens, coordinates, etc.)
-        rideDetailsMap.set(rideId, details);
+        setRideDetails(rideId, details);
         // Broadcast to drivers: include fare + top-level estimatedFare/estimatedDistance so driver app shows price
         const payload = {
             rideId,
@@ -470,7 +500,7 @@ class WebSocketService {
             waypoints,
             ...ride,
         };
-        rideDetailsMap.set(rideId, details);
+        setRideDetails(rideId, details);
         const payload = {
             rideId,
             rideCode: ride.rideCode,
@@ -507,7 +537,7 @@ class WebSocketService {
     // Accept ride via REST (HTTP) - mirrors the WS 'acceptRide' handler
     async acceptRideFromRest(params) {
         const { rideId, driverId, driverAccessToken } = params;
-        const storedRideDetails = rideDetailsMap.get(rideId);
+        const storedRideDetails = await getRideDetails(rideId);
         if (!storedRideDetails) {
             return { ok: false, message: 'Ride details not found', riderStoreSuccess: false, driverStoreSuccess: false };
         }
@@ -600,7 +630,7 @@ class WebSocketService {
             const message = riderError ?? 'Failed to persist ride details';
             return { ok: false, message, riderStoreSuccess: false, driverStoreSuccess: false };
         }
-        // 2) Notify the rider via WS with rideOtp only after rider DB accepted (avoids false "accepted" on conflict)
+        // 2) Notify rider via WS (instant) while driver backend persists in parallel
         const rideAcceptedPayload = {
             rideId,
             driverId,
@@ -608,19 +638,22 @@ class WebSocketService {
             rideOtp: rideOtp ?? null,
             timestamp: new Date().toISOString()
         };
-        const riderId = this.rideToRiderMap.get(rideId);
-        if (typeof riderId === 'string') {
-            const riderSocket = this.riderSockets.get(riderId);
-            if (riderSocket) {
-                riderSocket.emit('rideAccepted', rideAcceptedPayload);
+        const notifyRiderWs = () => {
+            const riderId = this.rideToRiderMap.get(rideId);
+            if (typeof riderId === 'string') {
+                const riderSocket = this.riderSockets.get(riderId);
+                if (riderSocket) {
+                    riderSocket.emit('rideAccepted', rideAcceptedPayload);
+                }
+                else {
+                    this.io.to('riders').emit('rideAccepted', rideAcceptedPayload);
+                }
             }
             else {
                 this.io.to('riders').emit('rideAccepted', rideAcceptedPayload);
             }
-        }
-        else {
-            this.io.to('riders').emit('rideAccepted', rideAcceptedPayload);
-        }
+        };
+        notifyRiderWs();
         // 3) Forward to driver backend (must succeed for accept to be considered successful)
         let driverStoreSuccess = false;
         let driverError;
@@ -670,7 +703,14 @@ class WebSocketService {
         }
         // Other drivers still showing the incoming-ride popup must dismiss it immediately.
         this.emitRideRequestClosedAfterAccept(rideId, driverId, storedRideDetails);
-        return { ok: true, message, riderStoreSuccess, driverStoreSuccess };
+        return {
+            ok: true,
+            message,
+            riderStoreSuccess,
+            driverStoreSuccess,
+            rideOtp,
+            rideCode: storedRideDetails?.rideCode,
+        };
     }
     /**
      * Notify all drivers who saw this ride request that it is no longer available

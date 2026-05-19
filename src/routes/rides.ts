@@ -117,6 +117,8 @@ ridesRouter.post('/accept', async (req, res) => {
       success: true,
       message: result.message,
       assignedDriverId: driverId,
+      rideOtp: result.rideOtp ?? null,
+      rideCode: result.rideCode ?? null,
     });
   } catch (err: any) {
     return res.status(500).json({ error: 'Failed to accept ride', details: err.message });

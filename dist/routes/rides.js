@@ -121,6 +121,8 @@ const createRidesRouter = (wsService) => {
                 success: true,
                 message: result.message,
                 assignedDriverId: driverId,
+                rideOtp: result.rideOtp ?? null,
+                rideCode: result.rideCode ?? null,
             });
         }
         catch (err) {

@@ -18,6 +18,34 @@ interface AuthenticatedSocket {
 }
 
 const rideDetailsMap = new Map();
+const RIDE_DETAILS_REDIS_PREFIX = 'gateway:ride_details:';
+/** Match active-ride Redis TTL so accept still works after gateway restart. */
+const RIDE_DETAILS_TTL_SEC = 7200;
+
+function setRideDetails(rideId: string, details: Record<string, any>): void {
+  rideDetailsMap.set(rideId, details);
+  if (redis.client) {
+    const key = `${RIDE_DETAILS_REDIS_PREFIX}${rideId}`;
+    redis
+      .set(key, JSON.stringify(details), 'EX', RIDE_DETAILS_TTL_SEC)
+      .catch(() => {});
+  }
+}
+
+async function getRideDetails(rideId: string): Promise<Record<string, any> | undefined> {
+  const mem = rideDetailsMap.get(rideId);
+  if (mem) return mem;
+  if (!redis.client) return undefined;
+  try {
+    const raw = await redis.get(`${RIDE_DETAILS_REDIS_PREFIX}${rideId}`);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Record<string, any>;
+    rideDetailsMap.set(rideId, parsed);
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
 
 export class WebSocketService {
   private io: SocketIOServer;
@@ -185,7 +213,7 @@ export class WebSocketService {
         }
 
         // Store the full ride details in memory for later use
-        rideDetailsMap.set(rideId, {
+        setRideDetails(rideId, {
           ...data,
           rideId,
           rideCode,
@@ -216,7 +244,7 @@ export class WebSocketService {
           socket.emit('acceptRideAck', { rideId, status: 'error', message: 'rideId and driverId are required' });
           return;
         }
-        const storedRideDetails = rideDetailsMap.get(rideId);
+        const storedRideDetails = await getRideDetails(rideId);
         if (!storedRideDetails) {
           console.error('No ride details found for rideId:', rideId);
           socket.emit('acceptRideAck', { rideId, status: 'error', message: 'Ride details not found' });
@@ -224,7 +252,7 @@ export class WebSocketService {
         }
         if (data.accessToken) {
           storedRideDetails.driverAccessToken = data.accessToken;
-          rideDetailsMap.set(rideId, storedRideDetails);
+          setRideDetails(rideId, storedRideDetails);
         }
         const result = await this.acceptRideFromRest({
           rideId,
@@ -456,7 +484,7 @@ export class WebSocketService {
       candidateDrivers
     };
     // Store for later use in acceptRide (tokens, coordinates, etc.)
-    rideDetailsMap.set(rideId, details);
+    setRideDetails(rideId, details);
 
     // Broadcast to drivers: include fare + top-level estimatedFare/estimatedDistance so driver app shows price
     const payload = {
@@ -535,7 +563,7 @@ export class WebSocketService {
       waypoints,
       ...ride,
     };
-    rideDetailsMap.set(rideId, details);
+    setRideDetails(rideId, details);
 
     const payload = {
       rideId,
@@ -581,9 +609,11 @@ export class WebSocketService {
     code?: string;
     riderStoreSuccess: boolean;
     driverStoreSuccess: boolean;
+    rideOtp?: string;
+    rideCode?: string;
   }> {
     const { rideId, driverId, driverAccessToken } = params;
-    const storedRideDetails: any = rideDetailsMap.get(rideId);
+    const storedRideDetails: any = await getRideDetails(rideId);
     if (!storedRideDetails) {
       return { ok: false, message: 'Ride details not found', riderStoreSuccess: false, driverStoreSuccess: false };
     }
@@ -678,7 +708,7 @@ export class WebSocketService {
       return { ok: false, message, riderStoreSuccess: false, driverStoreSuccess: false };
     }
 
-    // 2) Notify the rider via WS with rideOtp only after rider DB accepted (avoids false "accepted" on conflict)
+    // 2) Notify rider via WS (instant) while driver backend persists in parallel
     const rideAcceptedPayload = {
       rideId,
       driverId,
@@ -686,17 +716,20 @@ export class WebSocketService {
       rideOtp: rideOtp ?? null,
       timestamp: new Date().toISOString()
     };
-    const riderId = this.rideToRiderMap.get(rideId);
-    if (typeof riderId === 'string') {
-      const riderSocket = this.riderSockets.get(riderId);
-      if (riderSocket) {
-        riderSocket.emit('rideAccepted', rideAcceptedPayload);
+    const notifyRiderWs = () => {
+      const riderId = this.rideToRiderMap.get(rideId);
+      if (typeof riderId === 'string') {
+        const riderSocket = this.riderSockets.get(riderId);
+        if (riderSocket) {
+          riderSocket.emit('rideAccepted', rideAcceptedPayload);
+        } else {
+          this.io.to('riders').emit('rideAccepted', rideAcceptedPayload);
+        }
       } else {
         this.io.to('riders').emit('rideAccepted', rideAcceptedPayload);
       }
-    } else {
-      this.io.to('riders').emit('rideAccepted', rideAcceptedPayload);
-    }
+    };
+    notifyRiderWs();
 
     // 3) Forward to driver backend (must succeed for accept to be considered successful)
     let driverStoreSuccess = false;
@@ -752,7 +785,14 @@ export class WebSocketService {
     // Other drivers still showing the incoming-ride popup must dismiss it immediately.
     this.emitRideRequestClosedAfterAccept(rideId, driverId, storedRideDetails);
 
-    return { ok: true, message, riderStoreSuccess, driverStoreSuccess };
+    return {
+      ok: true,
+      message,
+      riderStoreSuccess,
+      driverStoreSuccess,
+      rideOtp,
+      rideCode: storedRideDetails?.rideCode,
+    };
   }
 
   /**

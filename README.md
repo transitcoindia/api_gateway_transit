@@ -128,6 +128,20 @@ The API Gateway provides consistent error responses:
 
 The API Gateway uses Morgan for HTTP request logging and Winston for application logging.
 
+## Cloudflare Tunnel on EC2
+
+When the gateway runs on EC2 behind a Cloudflare Tunnel, `localhost` in the tunnel ingress is **the EC2 instance**, not your laptop.
+
+1. Install/configure the tunnel connector on the server using PowerShell from this folder:
+   ```powershell
+   .\setup-cloudflared-tunnel-ec2.ps1 -TunnelToken "YOUR_CONNECTOR_TOKEN"
+   ```
+   Defaults match `deploy-gateway-to-ec2.ps1` (same EC2 IP and SSH key). Use `-EC2_IP`, `-SSH_KEY`, `-SSHUser` if needed.
+
+2. In **Cloudflare Zero Trust → Networks → Tunnels → [tunnel] → Public Hostname**, point **`gateway.transitco.in`** to **`http://localhost:<PORT>`** where `PORT` is the one **`api-gateway-transit`** listens on (see **`CLOUDFLARE_TUNNEL_PORTS.md`** at repo root). Verify on EC2: `pm2 pid api-gateway-transit` + `ss -tlnp | grep node` — do not assume; driver and gateway use different ports.
+
+3. If **one tunnel** serves both API and gateway on the **same** EC2, run **only one** of `setup-cloudflared-tunnel-ec2.ps1` (here or under `transit_driver`) — same connector token. Add **two** public hostnames: e.g. **`api.transitco.in` → `transit-driver`’s port**, **`gateway.transitco.in` → `api-gateway-transit`’s port** (each from `ss` + PM2).
+
 ## Contributing
 
 1. Fork the repository

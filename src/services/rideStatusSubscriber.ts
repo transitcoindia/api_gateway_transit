@@ -112,11 +112,14 @@ function createSubscription(io: SocketIOServer) {
     if (channel === CHANNEL) {
       try {
         const data = JSON.parse(message);
-        const { rideId, riderId } = data || {};
+        const { rideId, riderId, driverId } = data || {};
         if (riderId) {
           io.to(`rider:${riderId}`).emit('rideStatusUpdate', data);
         } else {
           io.to('riders').emit('rideStatusUpdate', data);
+        }
+        if (driverId) {
+          io.to(`driver:${String(driverId)}`).emit('rideStatusUpdate', data);
         }
       } catch (e) {
         console.error('Failed to process ride status update:', e);
